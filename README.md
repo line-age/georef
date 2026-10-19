@@ -25,13 +25,19 @@ flowchart LR
         IIIF[IIIF image service<br/>originals + tiles]
         EDITOR[Allmaps editor]
         ANNO[annotation server]
-        DB[(database<br/>Georeference Annotations,<br/>every version)]
+        DB[(Postgres<br/>Georeference Annotations,<br/>every version)]
+        TILES[Allmaps Tile Server<br/>+ Preview]
+        VIEWER[Allmaps Viewer]
         IIIF -->|image and manifest URLs| EDITOR
-        EDITOR <-->|ShareDB websocket| ANNO
+        EDITOR <-->|ShareDB websocket + REST| ANNO
         ANNO --> DB
+        ANNO -->|annotations| TILES
+        IIIF -->|IIIF tiles| TILES
+        ANNO -->|annotations| VIEWER
     end
     GEO([georeferencer]) -->|LDAP login| EDITOR
-    IIIF -->|tiles, public unless the scan's rights are in question| VIEW([IIIF viewers])
+    IIIF -->|IIIF tiles, public unless the scan's rights are in question| VIEW([IIIF viewers])
+    TILES -->|warped XYZ tiles| QGIS([QGIS])
     ANNO -->|annotation permalinks, public| OUT([viewers, store])
     AM[(allmaps.org)] -.->|import an existing annotation| ANNO
 ```
@@ -41,10 +47,21 @@ flowchart LR
   question; those need a login too.
 - **Allmaps editor** ([#2](https://github.com/line-age/georef/issues/2)). It opens sheets
   by their IIIF URLs from the image service. Editing needs an LDAP login.
-- **Annotation server** (#2). It stores what the editor saves: one Georeference Annotation
+- **Annotation server** (#2). It answers the editor on three APIs (a ShareDB websocket,
+  REST and annotations) and stores what the editor saves: one Georeference Annotation
   per sheet, in the IIIF georeference extension format. Each annotation holds the
   sheet's control points (pixel position paired with longitude and latitude), the mask
   around the map area, and the transformation type. Every saved version is kept, with
   who saved it and when.
+- **Allmaps Tile Server, Preview and Viewer**
+  ([#5](https://github.com/line-age/georef/issues/5)). The Tile Server turns an
+  annotation and the image service's tiles into warped XYZ map tiles, which is how a
+  georeferenced sheet opens in QGIS. Preview makes thumbnails; the Viewer shows warped
+  maps in the browser. allmaps.org runs all three on Cloudflare; we run our own.
+
+Allmaps publishes the editor, viewer, tile server and its database schema, but not the
+API server, and nothing builds for containers today. We're asking upstream before
+building ([#4](https://github.com/line-age/georef/issues/4)): what we write for
+self-hosting should go back to Allmaps where they'll take it.
 
 Nothing here yet.
