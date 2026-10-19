@@ -1,0 +1,19 @@
+README.md
+  s_ec024a9d890d05::t_b3b3a6f4a3eda4 28-30,32,34-36,39-40,50-51,56-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "47b10c22d818ff6b956afd53501c6c0d2b71c374",
+  "prompts": {},
+  "sessions": {
+    "s_ec024a9d890d05": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "77d56632-cbf1-42f8-80ea-f86039a93beb",
+        "model": "unknown"
+      },
+      "human_author": "Nick Marden <nmarden@avvo.com>"
+    }
+  }
+}
