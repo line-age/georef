@@ -44,7 +44,8 @@ flowchart LR
 
 - **IIIF image service** ([#1](https://github.com/line-age/georef/issues/1)). Uploading
   needs a GitHub login in an allowed team. Anyone can download, except for scans whose
-  copyright is in question; those need a login too.
+  copyright is in question; those need a login too. Design:
+  [docs/image-service.md](docs/image-service.md).
 - **Allmaps editor** ([#2](https://github.com/line-age/georef/issues/2)). It opens sheets
   by their IIIF URLs from the image service. Editing needs a GitHub login in an allowed
   team.
