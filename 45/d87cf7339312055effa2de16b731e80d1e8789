@@ -1,0 +1,21 @@
+docs/image-service.md
+  s_a698fc9efede09::t_067d75abbc6c4a 1-130
+README.md
+  s_a698fc9efede09::t_f286afa664cd17 47-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "45d87cf7339312055effa2de16b731e80d1e8789",
+  "prompts": {},
+  "sessions": {
+    "s_a698fc9efede09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "357cbd41-d846-47f4-beb8-0eb50e48e7a9",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Nick Marden <nmarden@avvo.com>"
+    }
+  }
+}
