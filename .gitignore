@@ -1,0 +1,9 @@
+# Build output
+bin/
+
+# Generated sqlc output (committed — remove this line if you prefer to commit it)
+# internal/db/
+
+# Editor and OS
+.DS_Store
+*.swp
