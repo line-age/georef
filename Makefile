@@ -13,7 +13,7 @@ test:
 	go test ./...
 
 generate:
-	sqlc generate
+	docker run --rm -v $(PWD):/src -w /src sqlc/sqlc generate
 
 docker-build:
 	docker compose build
