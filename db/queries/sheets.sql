@@ -16,11 +16,14 @@ RETURNING *;
 -- name: GetSheetByID :one
 SELECT * FROM sheets WHERE id = $1 LIMIT 1;
 
+-- name: GetSheetByIDForUpdate :one
+SELECT * FROM sheets WHERE id = $1 LIMIT 1 FOR UPDATE;
+
 -- name: ListSheets :many
 SELECT * FROM sheets
-WHERE ($1::sheet_status IS NULL OR status = $1)
+WHERE (sqlc.narg('status')::sheet_status IS NULL OR status = sqlc.narg('status'))
 ORDER BY created_at DESC
-LIMIT $2 OFFSET $3;
+LIMIT $1 OFFSET $2;
 
 -- name: UpdateSheet :one
 UPDATE sheets SET
@@ -54,15 +57,15 @@ UPDATE sheets SET
     status      = 'deleted',
     deleted_at  = now(),
     updated_at  = now()
-WHERE id = $1
+WHERE id = $1 AND status != 'deleted'
 RETURNING *;
 
--- name: ClaimProcessingSheet :one
--- Atomically claims one processing sheet for the worker.
--- SKIP LOCKED means concurrent workers never block each other;
--- a worker that dies mid-job leaves the row unlocked for another worker to claim.
+-- name: ClaimNext :one
+-- Atomically claims one sheet for the worker. Picks up both processing
+-- and failed rows so the worker handles retries automatically.
+-- SKIP LOCKED means concurrent workers never block each other.
 SELECT * FROM sheets
-WHERE status = 'processing'
+WHERE status IN ('processing', 'failed')
 ORDER BY created_at
 LIMIT 1
 FOR UPDATE SKIP LOCKED;
