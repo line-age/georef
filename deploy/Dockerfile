@@ -1,5 +1,5 @@
 # build -----------------------------------------------------------------------
-FROM golang:1.23-alpine AS build
+FROM golang:1.26-alpine AS build
 
 # vips-dev + C toolchain needed to link against libvips in the worker binary
 RUN apk add --no-cache vips-dev gcc musl-dev
@@ -8,8 +8,12 @@ WORKDIR /var/www/georef/image-service
 COPY go.mod go.sum* ./
 RUN go mod download
 
+# Install sqlc so generated files are always in sync with the .sql sources
+RUN go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+
 COPY . .
-RUN go build -o /out/server ./cmd/server \
+RUN sqlc generate \
+ && go build -o /out/server ./cmd/server \
  && go build -o /out/worker ./cmd/worker
 
 # server ----------------------------------------------------------------------

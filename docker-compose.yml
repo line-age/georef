@@ -21,7 +21,7 @@ services:
   # by design (no ports: mapping). The front service proxies to it.
   # See docs/image-service.md for Cantaloupe config details (Stage 6+).
   cantaloupe:
-    image: uclalibrary/cantaloupe:latest
+    image: uclalibrary/cantaloupe:5.0.7-2
     environment:
       CANTALOUPE_SOURCE_STATIC: FilesystemSource
       CANTALOUPE_FILESYSTEMSOURCE_BASICLOOKUPSTRATEGY_PATH_PREFIX: /data/storage/
