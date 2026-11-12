@@ -3,7 +3,9 @@ module github.com/line-age/georef
 go 1.26.0
 
 require (
+	github.com/go-chi/chi/v5 v5.5.0
 	github.com/jackc/pgx/v5 v5.13.0
+	github.com/oklog/ulid/v2 v2.1.2
 	github.com/testcontainers/testcontainers-go v0.45.0
 )
 

@@ -11,7 +11,8 @@ import (
 type Store interface {
 	// SaveOriginalScan streams r to storage as the original scan for the given sheet ID.
 	// The write is atomic: either the whole file lands or nothing does.
-	SaveOriginalScan(ctx context.Context, id string, r io.Reader) error
+	// It returns the path at which the file was stored.
+	SaveOriginalScan(ctx context.Context, id string, r io.Reader) (string, error)
 
 	// OpenOriginalScan returns a reader for the original scan of the given sheet ID.
 	// The caller must close the returned ReadCloser.

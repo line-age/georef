@@ -4,6 +4,9 @@ bin/
 # Generated sqlc output (committed — remove this line if you prefer to commit it)
 # internal/db/
 
+# Local environment — never commit real credentials
+.env
+
 # Editor and OS
 .DS_Store
 *.swp

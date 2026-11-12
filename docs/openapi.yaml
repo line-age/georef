@@ -1,0 +1,164 @@
+openapi: "3.0.3"
+info:
+  title: Georef Image Service API
+  version: "0.1.0"
+  description: |
+    Self-hosted IIIF image service for georeferenced scanned maps.
+    Uploads are accepted, stored, and converted to pyramidal TIFFs by a
+    background worker. IIIF URLs are stable from the moment of upload.
+
+paths:
+  /sheets:
+    post:
+      summary: Upload a scanned map
+      description: |
+        Accepts a scanned map file (TIFF or JPEG), stores the original,
+        creates a sheet record with `status=processing`, and returns
+        stable IIIF and sheet URLs.
+
+        Conversion to a pyramidal TIFF happens asynchronously.
+        Poll `GET /sheets/{id}` to check when the sheet becomes `ready`.
+        IIIF tile requests on a `processing` sheet return `503 Retry-After`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - title
+                - file
+              properties:
+                title:
+                  type: string
+                  description: Display title for the map sheet.
+                  example: "Ordnance Survey 1:25000 — Sheet NY30"
+                institution:
+                  type: string
+                  description: Holding institution (optional).
+                  example: "British Library"
+                source_url:
+                  type: string
+                  description: URL of the original source record (optional).
+                  example: "https://example.com/maps/ny30"
+                rights_note:
+                  type: string
+                  description: Rights or licensing note (optional).
+                  example: "Public domain"
+                file:
+                  type: string
+                  format: binary
+                  description: |
+                    Scanned map image. Accepted types: image/tiff, image/jpeg.
+                    Maximum size: 1 GB.
+      responses:
+        "202":
+          description: |
+            Upload accepted. The sheet record is created with
+            `status=processing`. The returned URLs are stable and can be
+            embedded in georeference annotations immediately.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+              example:
+                id: "01JEMKR9VXYZ0000000000000"
+                sheet_url: "https://maps.example.com/sheets/01JEMKR9VXYZ0000000000000"
+                iiif_base_url: "https://maps.example.com/iiif/01JEMKR9VXYZ0000000000000"
+                manifest_url: "https://maps.example.com/iiif/01JEMKR9VXYZ0000000000000/manifest"
+
+        "400":
+          description: |
+            Validation error. The request was malformed or a required field
+            was missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                title_required:
+                  summary: Title field not provided
+                  value:
+                    error: "title is required"
+                file_required:
+                  summary: File field not provided
+                  value:
+                    error: "file is required"
+                unsupported_file_type:
+                  summary: File content not an accepted image type
+                  value:
+                    error: "unsupported file type; accepted: image/tiff, image/jpeg"
+                invalid_form:
+                  summary: Multipart form could not be parsed
+                  value:
+                    error: "invalid multipart form"
+
+        "413":
+          description: |
+            The uploaded file exceeds the configured maximum size
+            (default 1 GB, controlled by MAX_UPLOAD_SIZE).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: "file too large"
+
+        "500":
+          description: |
+            Internal error. The file could not be stored or the sheet record
+            could not be created. The request may be retried.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                store_failed:
+                  summary: Storage write failed
+                  value:
+                    error: "failed to store scan"
+                record_failed:
+                  summary: Database insert failed
+                  value:
+                    error: "failed to create sheet record"
+
+components:
+  schemas:
+    UploadResponse:
+      type: object
+      required:
+        - id
+        - sheet_url
+        - iiif_base_url
+        - manifest_url
+      properties:
+        id:
+          type: string
+          description: |
+            ULID identifier for the sheet. Stable forever — never reused,
+            even after deletion.
+          example: "01JEMKR9VXYZ0000000000000"
+        sheet_url:
+          type: string
+          description: URL for reading and managing the sheet record.
+          example: "https://maps.example.com/sheets/01JEMKR9VXYZ0000000000000"
+        iiif_base_url:
+          type: string
+          description: |
+            IIIF Image API base URL. Append `/info.json` for the image
+            descriptor, or tile coordinates for individual tiles.
+          example: "https://maps.example.com/iiif/01JEMKR9VXYZ0000000000000"
+        manifest_url:
+          type: string
+          description: IIIF Presentation API manifest URL.
+          example: "https://maps.example.com/iiif/01JEMKR9VXYZ0000000000000/manifest"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Human-readable description of what went wrong.
+          example: "title is required"

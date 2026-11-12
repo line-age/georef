@@ -24,7 +24,7 @@ func TestLocalStore(t *testing.T) {
 		t.Parallel()
 		content := "original scan bytes"
 
-		if err := store.SaveOriginalScan(ctx, id, strings.NewReader(content)); err != nil {
+		if _, err := store.SaveOriginalScan(ctx, id, strings.NewReader(content)); err != nil {
 			t.Fatalf("SaveOriginalScan: %v", err)
 		}
 
@@ -69,7 +69,7 @@ func TestLocalStore(t *testing.T) {
 		t.Parallel()
 		newID := "01JEMKR9VNEW"
 
-		if err := store.SaveOriginalScan(ctx, newID, strings.NewReader("x")); err != nil {
+		if _, err := store.SaveOriginalScan(ctx, newID, strings.NewReader("x")); err != nil {
 			t.Fatalf("SaveOriginalScan with new id: %v", err)
 		}
 
@@ -83,7 +83,7 @@ func TestLocalStore(t *testing.T) {
 		t.Parallel()
 		atomicID := "01JEMKR9VATM"
 
-		if err := store.SaveOriginalScan(ctx, atomicID, strings.NewReader("data")); err != nil {
+		if _, err := store.SaveOriginalScan(ctx, atomicID, strings.NewReader("data")); err != nil {
 			t.Fatalf("SaveOriginalScan: %v", err)
 		}
 

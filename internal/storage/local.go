@@ -17,8 +17,9 @@ func NewLocalStore(root string) Store {
 	return &localStore{root: root}
 }
 
-func (s *localStore) SaveOriginalScan(_ context.Context, id string, r io.Reader) error {
-	return atomicWrite(s.scanPath(id), r)
+func (s *localStore) SaveOriginalScan(_ context.Context, id string, r io.Reader) (string, error) {
+	p := s.scanPath(id)
+	return p, atomicWrite(p, r)
 }
 
 func (s *localStore) OpenOriginalScan(_ context.Context, id string) (io.ReadCloser, error) {
