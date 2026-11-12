@@ -143,19 +143,23 @@ func scanSheet(row interface {
 	Scan(...any) error
 }) (*model.Sheet, error) {
 	var s model.Sheet
+	// Nullable columns scanned into pointers; non-pointer fields in the struct
+	// hold their zero value when the column is NULL.
+	var errorMessage, institution, sourceURL, rightsNote, pyramidPath *string
 	var deletedAt *time.Time
+
 	err := row.Scan(
 		&s.ID,
 		&s.Title,
-		&s.Institution,
-		&s.SourceURL,
-		&s.RightsNote,
+		&institution,
+		&sourceURL,
+		&rightsNote,
 		&s.Status,
-		&s.ErrorMessage,
+		&errorMessage,
 		&s.OriginalChecksum,
 		&s.OriginalSize,
 		&s.OriginalPath,
-		&s.PyramidPath,
+		&pyramidPath,
 		&s.UploaderGitHubID,
 		&s.CreatedAt,
 		&s.UpdatedAt,
@@ -164,6 +168,19 @@ func scanSheet(row interface {
 	if err != nil {
 		return nil, err
 	}
-	s.DeletedAt = deletedAt
+	s.Institution  = derefStr(institution)
+	s.SourceURL    = derefStr(sourceURL)
+	s.RightsNote   = derefStr(rightsNote)
+	s.ErrorMessage = derefStr(errorMessage)
+	s.PyramidPath  = derefStr(pyramidPath)
+	s.DeletedAt    = deletedAt
 	return &s, nil
+}
+
+// derefStr returns the string value of a nullable pointer, or "" if nil.
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }

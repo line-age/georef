@@ -132,7 +132,7 @@ func newTestSheet(id string) *model.Sheet {
 
 func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	_, err := pool.Exec(ctx, `
-		CREATE TYPE IF NOT EXISTS sheet_status AS ENUM ('processing','ready','failed','deleted');
+		CREATE TYPE sheet_status AS ENUM ('processing','ready','failed','deleted');
 
 		CREATE TABLE IF NOT EXISTS sheets (
 			id                  TEXT            PRIMARY KEY,
