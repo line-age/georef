@@ -25,6 +25,10 @@ func (s *localStore) OpenOriginalScan(_ context.Context, id string) (io.ReadClos
 	return os.Open(s.scanPath(id))
 }
 
+func (s *localStore) OriginalScanPath(_ context.Context, id string) (string, error) {
+	return s.scanPath(id), nil
+}
+
 func (s *localStore) SavePyramidalTIFF(_ context.Context, id string, r io.Reader) error {
 	return atomicWrite(s.tiffPath(id), r)
 }

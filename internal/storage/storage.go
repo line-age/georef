@@ -17,6 +17,10 @@ type Store interface {
 	// The caller must close the returned ReadCloser.
 	OpenOriginalScan(ctx context.Context, id string) (io.ReadCloser, error)
 
+	// OriginalScanPath returns the filesystem path or S3 URI of the original scan.
+	// Stored in the sheet record so operators can locate the file directly.
+	OriginalScanPath(ctx context.Context, id string) (string, error)
+
 	// SavePyramidalTIFF streams r to storage as the pyramidal TIFF for the given sheet ID.
 	// The write is atomic: either the whole file lands or nothing does.
 	SavePyramidalTIFF(ctx context.Context, id string, r io.Reader) error
