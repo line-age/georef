@@ -44,11 +44,17 @@ UPDATE sheets SET
 WHERE id = $1
 RETURNING *;
 
--- name: SetSheetFailed :one
+-- name: RecordConversionFailure :one
+-- Increments retry_count and decides the new status atomically.
+-- When retry_count + 1 reaches max_retries the sheet is marked failed
+-- permanently; otherwise it goes back to processing for another attempt.
 UPDATE sheets SET
-    status          = 'failed',
-    error_message   = $2,
-    updated_at      = now()
+    retry_count   = retry_count + 1,
+    status        = CASE WHEN retry_count + 1 >= $3
+                         THEN 'failed'::sheet_status
+                         ELSE 'processing'::sheet_status END,
+    error_message = $2,
+    updated_at    = now()
 WHERE id = $1
 RETURNING *;
 
@@ -61,11 +67,13 @@ WHERE id = $1 AND status != 'deleted'
 RETURNING *;
 
 -- name: ClaimNext :one
--- Atomically claims one sheet for the worker. Picks up both processing
--- and failed rows so the worker handles retries automatically.
+-- Atomically claims one sheet for the worker. Picks up processing rows and
+-- failed rows that have not yet exhausted their retry budget (retry_count < $1).
+-- Rows with retry_count >= max_retries are terminal and left untouched.
 -- SKIP LOCKED means concurrent workers never block each other.
 SELECT * FROM sheets
 WHERE status IN ('processing', 'failed')
+  AND retry_count < $1
 ORDER BY created_at
 LIMIT 1
 FOR UPDATE SKIP LOCKED;
