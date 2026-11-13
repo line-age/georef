@@ -95,16 +95,15 @@ func TestUploadSheet(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	sheets := sheet.NewDB(pool)
-	storageRoot := t.TempDir()
-	store := storage.NewLocalStore(storageRoot)
+	sheets := sheet.NewRepository(pool)
+	store := storage.NewLocalStore(t.TempDir())
 	const oneGB = 1 << 30
-	h := api.New(sheets, store, "https://maps.example.com", oneGB)
+	handler := api.New(sheets, store, "https://maps.example.com", oneGB)
 
 	// ── Happy path ────────────────────────────────────────────────────────
 
 	t.Run("tiff_upload_returns_202", func(t *testing.T) {
-		rec := doUpload(t, h, uploadForm{
+		rec := doUpload(t, handler, uploadForm{
 			title:       "Test Map",
 			fileContent: makeTIFFFile("content"),
 			mimeType:    "image/tiff",
@@ -115,7 +114,7 @@ func TestUploadSheet(t *testing.T) {
 	})
 
 	t.Run("jpeg_upload_returns_202", func(t *testing.T) {
-		rec := doUpload(t, h, uploadForm{
+		rec := doUpload(t, handler, uploadForm{
 			title:       "JPEG Map",
 			fileContent: makeJPEGFile("content"),
 			mimeType:    "image/jpeg",
@@ -126,19 +125,19 @@ func TestUploadSheet(t *testing.T) {
 	})
 
 	t.Run("response_content_type_is_json", func(t *testing.T) {
-		rec := doUpload(t, h, uploadForm{
+		rec := doUpload(t, handler, uploadForm{
 			title:       "JSON CT Map",
 			fileContent: makeTIFFFile("content"),
 			mimeType:    "image/tiff",
 		})
-		ct := rec.Header().Get("Content-Type")
-		if !strings.HasPrefix(ct, "application/json") {
-			t.Errorf("want application/json, got %q", ct)
+		contentType := rec.Header().Get("Content-Type")
+		if !strings.HasPrefix(contentType, "application/json") {
+			t.Errorf("want application/json, got %q", contentType)
 		}
 	})
 
 	t.Run("response_contains_all_required_fields", func(t *testing.T) {
-		rec := doUpload(t, h, uploadForm{
+		rec := doUpload(t, handler, uploadForm{
 			title:       "Fields Map",
 			fileContent: makeTIFFFile("content"),
 			mimeType:    "image/tiff",
@@ -160,7 +159,7 @@ func TestUploadSheet(t *testing.T) {
 	})
 
 	t.Run("response_id_is_valid_ulid", func(t *testing.T) {
-		rec := doUpload(t, h, uploadForm{
+		rec := doUpload(t, handler, uploadForm{
 			title:       "ULID Map",
 			fileContent: makeTIFFFile("content"),
 			mimeType:    "image/tiff",
@@ -173,19 +172,19 @@ func TestUploadSheet(t *testing.T) {
 	})
 
 	t.Run("each_upload_gets_unique_id", func(t *testing.T) {
-		r1 := decodeUploadResponse(t, doUpload(t, h, uploadForm{
+		firstResp := decodeUploadResponse(t, doUpload(t, handler, uploadForm{
 			title: "Map A", fileContent: makeTIFFFile("a"), mimeType: "image/tiff",
 		}))
-		r2 := decodeUploadResponse(t, doUpload(t, h, uploadForm{
+		secondResp := decodeUploadResponse(t, doUpload(t, handler, uploadForm{
 			title: "Map B", fileContent: makeTIFFFile("b"), mimeType: "image/tiff",
 		}))
-		if r1.ID == r2.ID {
-			t.Errorf("two uploads got the same id: %s", r1.ID)
+		if firstResp.ID == secondResp.ID {
+			t.Errorf("two uploads got the same id: %s", firstResp.ID)
 		}
 	})
 
 	t.Run("urls_are_built_from_base_url_and_id", func(t *testing.T) {
-		rec := doUpload(t, h, uploadForm{
+		rec := doUpload(t, handler, uploadForm{
 			title: "URL Map", fileContent: makeTIFFFile("content"), mimeType: "image/tiff",
 		})
 		resp := decodeUploadResponse(t, rec)
@@ -206,90 +205,90 @@ func TestUploadSheet(t *testing.T) {
 	})
 
 	t.Run("sheet_is_created_with_processing_status", func(t *testing.T) {
-		resp := decodeUploadResponse(t, doUpload(t, h, uploadForm{
+		resp := decodeUploadResponse(t, doUpload(t, handler, uploadForm{
 			title: "Status Map", fileContent: makeTIFFFile("content"), mimeType: "image/tiff",
 		}))
 
-		s, err := sheets.GetByID(ctx, resp.ID)
+		uploadedSheet, err := sheets.GetByID(ctx, resp.ID)
 		if err != nil {
 			t.Fatalf("GetByID: %v", err)
 		}
-		if s.Status != model.StatusProcessing {
-			t.Errorf("want status %q, got %q", model.StatusProcessing, s.Status)
+		if uploadedSheet.Status != model.StatusProcessing {
+			t.Errorf("want status %q, got %q", model.StatusProcessing, uploadedSheet.Status)
 		}
 	})
 
 	t.Run("checksum_matches_actual_file_content", func(t *testing.T) {
 		content := makeTIFFFile("reproducible scan content")
-		h256 := sha256.Sum256(content)
-		expectedChecksum := hex.EncodeToString(h256[:])
+		hashBytes := sha256.Sum256(content)
+		expectedChecksum := hex.EncodeToString(hashBytes[:])
 
-		resp := decodeUploadResponse(t, doUpload(t, h, uploadForm{
+		resp := decodeUploadResponse(t, doUpload(t, handler, uploadForm{
 			title: "Checksum Map", fileContent: content, mimeType: "image/tiff",
 		}))
 
-		s, err := sheets.GetByID(ctx, resp.ID)
+		uploadedSheet, err := sheets.GetByID(ctx, resp.ID)
 		if err != nil {
 			t.Fatalf("GetByID: %v", err)
 		}
-		if s.OriginalChecksum != expectedChecksum {
-			t.Errorf("checksum: got %q, want %q", s.OriginalChecksum, expectedChecksum)
+		if uploadedSheet.OriginalChecksum != expectedChecksum {
+			t.Errorf("checksum: got %q, want %q", uploadedSheet.OriginalChecksum, expectedChecksum)
 		}
 	})
 
 	t.Run("file_size_matches_actual_bytes", func(t *testing.T) {
 		content := makeTIFFFile("size test")
-		resp := decodeUploadResponse(t, doUpload(t, h, uploadForm{
+		resp := decodeUploadResponse(t, doUpload(t, handler, uploadForm{
 			title: "Size Map", fileContent: content, mimeType: "image/tiff",
 		}))
 
-		s, err := sheets.GetByID(ctx, resp.ID)
+		uploadedSheet, err := sheets.GetByID(ctx, resp.ID)
 		if err != nil {
 			t.Fatalf("GetByID: %v", err)
 		}
-		if s.OriginalSize != int64(len(content)) {
-			t.Errorf("original_size: got %d, want %d", s.OriginalSize, len(content))
+		if uploadedSheet.OriginalSize != int64(len(content)) {
+			t.Errorf("original_size: got %d, want %d", uploadedSheet.OriginalSize, len(content))
 		}
 	})
 
 	t.Run("original_scan_stored_at_canonical_path", func(t *testing.T) {
-		resp := decodeUploadResponse(t, doUpload(t, h, uploadForm{
+		resp := decodeUploadResponse(t, doUpload(t, handler, uploadForm{
 			title: "Path Map", fileContent: makeTIFFFile("content"), mimeType: "image/tiff",
 		}))
 
-		path, err := store.OriginalScanPath(ctx, resp.ID)
+		storedPath, err := store.OriginalScanPath(ctx, resp.ID)
 		if err != nil {
 			t.Fatalf("OriginalScanPath: %v", err)
 		}
 		wantSuffix := "sheets/" + resp.ID + "/original"
-		if !strings.HasSuffix(path, wantSuffix) {
-			t.Errorf("path %q does not end with %q", path, wantSuffix)
+		if !strings.HasSuffix(storedPath, wantSuffix) {
+			t.Errorf("path %q does not end with %q", storedPath, wantSuffix)
 		}
 	})
 
 	t.Run("original_scan_is_stored_in_storage", func(t *testing.T) {
 		content := makeTIFFFile("stored scan content")
-		resp := decodeUploadResponse(t, doUpload(t, h, uploadForm{
+		resp := decodeUploadResponse(t, doUpload(t, handler, uploadForm{
 			title: "Storage Map", fileContent: content, mimeType: "image/tiff",
 		}))
 
-		rc, err := store.OpenOriginalScan(ctx, resp.ID)
+		storedFile, err := store.OpenOriginalScan(ctx, resp.ID)
 		if err != nil {
 			t.Fatalf("OpenOriginalScan: %v", err)
 		}
-		defer rc.Close()
+		defer storedFile.Close()
 
-		got, err := io.ReadAll(rc)
+		storedBytes, err := io.ReadAll(storedFile)
 		if err != nil {
 			t.Fatalf("read stored file: %v", err)
 		}
-		if !bytes.Equal(got, content) {
-			t.Errorf("stored content mismatch: got %d bytes, want %d bytes", len(got), len(content))
+		if !bytes.Equal(storedBytes, content) {
+			t.Errorf("stored content mismatch: got %d bytes, want %d bytes", len(storedBytes), len(content))
 		}
 	})
 
 	t.Run("optional_fields_stored_when_provided", func(t *testing.T) {
-		resp := decodeUploadResponse(t, doUpload(t, h, uploadForm{
+		resp := decodeUploadResponse(t, doUpload(t, handler, uploadForm{
 			title:       "Optional Map",
 			institution: "National Library",
 			sourceURL:   "https://source.example.com/map",
@@ -298,45 +297,45 @@ func TestUploadSheet(t *testing.T) {
 			mimeType:    "image/tiff",
 		}))
 
-		s, err := sheets.GetByID(ctx, resp.ID)
+		uploadedSheet, err := sheets.GetByID(ctx, resp.ID)
 		if err != nil {
 			t.Fatalf("GetByID: %v", err)
 		}
-		if s.Institution != "National Library" {
-			t.Errorf("institution: got %q, want %q", s.Institution, "National Library")
+		if uploadedSheet.Institution != "National Library" {
+			t.Errorf("institution: got %q, want %q", uploadedSheet.Institution, "National Library")
 		}
-		if s.SourceURL != "https://source.example.com/map" {
-			t.Errorf("source_url: got %q, want %q", s.SourceURL, "https://source.example.com/map")
+		if uploadedSheet.SourceURL != "https://source.example.com/map" {
+			t.Errorf("source_url: got %q, want %q", uploadedSheet.SourceURL, "https://source.example.com/map")
 		}
-		if s.RightsNote != "Public domain" {
-			t.Errorf("rights_note: got %q, want %q", s.RightsNote, "Public domain")
+		if uploadedSheet.RightsNote != "Public domain" {
+			t.Errorf("rights_note: got %q, want %q", uploadedSheet.RightsNote, "Public domain")
 		}
 	})
 
 	t.Run("optional_fields_empty_when_not_provided", func(t *testing.T) {
-		resp := decodeUploadResponse(t, doUpload(t, h, uploadForm{
+		resp := decodeUploadResponse(t, doUpload(t, handler, uploadForm{
 			title: "Minimal Map", fileContent: makeTIFFFile("content"), mimeType: "image/tiff",
 		}))
 
-		s, err := sheets.GetByID(ctx, resp.ID)
+		uploadedSheet, err := sheets.GetByID(ctx, resp.ID)
 		if err != nil {
 			t.Fatalf("GetByID: %v", err)
 		}
-		if s.Institution != "" {
-			t.Errorf("institution should be empty, got %q", s.Institution)
+		if uploadedSheet.Institution != "" {
+			t.Errorf("institution should be empty, got %q", uploadedSheet.Institution)
 		}
-		if s.SourceURL != "" {
-			t.Errorf("source_url should be empty, got %q", s.SourceURL)
+		if uploadedSheet.SourceURL != "" {
+			t.Errorf("source_url should be empty, got %q", uploadedSheet.SourceURL)
 		}
-		if s.RightsNote != "" {
-			t.Errorf("rights_note should be empty, got %q", s.RightsNote)
+		if uploadedSheet.RightsNote != "" {
+			t.Errorf("rights_note should be empty, got %q", uploadedSheet.RightsNote)
 		}
 	})
 
 	// ── Validation failures ───────────────────────────────────────────────
 
 	t.Run("missing_title_returns_400_with_message", func(t *testing.T) {
-		rec := doUpload(t, h, uploadForm{
+		rec := doUpload(t, handler, uploadForm{
 			fileContent: makeTIFFFile("content"),
 			mimeType:    "image/tiff",
 		})
@@ -345,14 +344,14 @@ func TestUploadSheet(t *testing.T) {
 
 	t.Run("missing_file_returns_400_with_message", func(t *testing.T) {
 		// No fileContent → buildMultipartForm omits the file part entirely.
-		rec := doUpload(t, h, uploadForm{title: "No File Map"})
+		rec := doUpload(t, handler, uploadForm{title: "No File Map"})
 		assertErrorResponse(t, rec, http.StatusBadRequest, "file is required")
 	})
 
 	t.Run("unsupported_file_type_returns_400_with_message", func(t *testing.T) {
 		// Real PNG magic bytes so http.DetectContentType identifies it as image/png.
 		pngContent := append([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}, []byte("png data")...)
-		rec := doUpload(t, h, uploadForm{
+		rec := doUpload(t, handler, uploadForm{
 			title:       "PNG Map",
 			fileContent: pngContent,
 			mimeType:    "image/png",
@@ -362,7 +361,7 @@ func TestUploadSheet(t *testing.T) {
 
 	t.Run("unknown_mime_type_returns_400", func(t *testing.T) {
 		// Plain text bytes are detected as text/plain, which is not accepted.
-		rec := doUpload(t, h, uploadForm{
+		rec := doUpload(t, handler, uploadForm{
 			title:       "Unknown Type Map",
 			fileContent: []byte("plain text, not an image"),
 			mimeType:    "application/octet-stream",
@@ -372,29 +371,29 @@ func TestUploadSheet(t *testing.T) {
 
 	t.Run("file_too_large_returns_413", func(t *testing.T) {
 		// Create a handler with a tiny limit so we don't need to send gigabytes.
-		smallH := api.New(sheets, store, "https://maps.example.com", 100)
+		limitedHandler := api.New(sheets, store, "https://maps.example.com", 100)
 		// TIFF magic (4 bytes) + 200 bytes of padding = 204 bytes, well over the 100-byte limit.
-		bigContent := makeTIFFFile(strings.Repeat("x", 200))
-		rec := doUpload(t, smallH, uploadForm{
+		oversizedContent := makeTIFFFile(strings.Repeat("x", 200))
+		rec := doUpload(t, limitedHandler, uploadForm{
 			title:       "Big Map",
-			fileContent: bigContent,
+			fileContent: oversizedContent,
 			mimeType:    "image/tiff",
 		})
 		assertErrorResponse(t, rec, http.StatusRequestEntityTooLarge, "file too large")
 	})
 
 	t.Run("sheet_record_stores_original_path", func(t *testing.T) {
-		resp := decodeUploadResponse(t, doUpload(t, h, uploadForm{
+		resp := decodeUploadResponse(t, doUpload(t, handler, uploadForm{
 			title: "Path DB Map", fileContent: makeTIFFFile("content"), mimeType: "image/tiff",
 		}))
 
-		s, err := sheets.GetByID(ctx, resp.ID)
+		uploadedSheet, err := sheets.GetByID(ctx, resp.ID)
 		if err != nil {
 			t.Fatalf("GetByID: %v", err)
 		}
 		wantSuffix := "sheets/" + resp.ID + "/original"
-		if !strings.HasSuffix(s.OriginalPath, wantSuffix) {
-			t.Errorf("original_path: got %q, does not end with %q", s.OriginalPath, wantSuffix)
+		if !strings.HasSuffix(uploadedSheet.OriginalPath, wantSuffix) {
+			t.Errorf("original_path: got %q, does not end with %q", uploadedSheet.OriginalPath, wantSuffix)
 		}
 	})
 }
@@ -411,51 +410,51 @@ type uploadForm struct {
 }
 
 // doUpload builds and sends a POST /sheets request, returning the recorder.
-func doUpload(t *testing.T, h *api.Handler, f uploadForm) *httptest.ResponseRecorder {
+func doUpload(t *testing.T, handler *api.Handler, form uploadForm) *httptest.ResponseRecorder {
 	t.Helper()
-	body, ct := buildMultipartForm(t, f)
+	body, contentType := buildMultipartForm(t, form)
 	req := httptest.NewRequest(http.MethodPost, "/sheets", body)
-	req.Header.Set("Content-Type", ct)
+	req.Header.Set("Content-Type", contentType)
 	rec := httptest.NewRecorder()
-	h.Routes().ServeHTTP(rec, req)
+	handler.Routes().ServeHTTP(rec, req)
 	return rec
 }
 
 // buildMultipartForm constructs a multipart body from the given fields.
 // The file part is omitted when fileContent is nil and mimeType is empty.
-func buildMultipartForm(t *testing.T, f uploadForm) (*bytes.Buffer, string) {
+func buildMultipartForm(t *testing.T, form uploadForm) (*bytes.Buffer, string) {
 	t.Helper()
 	var body bytes.Buffer
-	mw := multipart.NewWriter(&body)
+	multipartWriter := multipart.NewWriter(&body)
 
-	if f.title != "" {
-		mw.WriteField("title", f.title) //nolint:errcheck
+	if form.title != "" {
+		multipartWriter.WriteField("title", form.title) //nolint:errcheck
 	}
-	if f.institution != "" {
-		mw.WriteField("institution", f.institution) //nolint:errcheck
+	if form.institution != "" {
+		multipartWriter.WriteField("institution", form.institution) //nolint:errcheck
 	}
-	if f.sourceURL != "" {
-		mw.WriteField("source_url", f.sourceURL) //nolint:errcheck
+	if form.sourceURL != "" {
+		multipartWriter.WriteField("source_url", form.sourceURL) //nolint:errcheck
 	}
-	if f.rightsNote != "" {
-		mw.WriteField("rights_note", f.rightsNote) //nolint:errcheck
+	if form.rightsNote != "" {
+		multipartWriter.WriteField("rights_note", form.rightsNote) //nolint:errcheck
 	}
 
-	if len(f.fileContent) > 0 || f.mimeType != "" {
-		h := make(textproto.MIMEHeader)
-		h.Set("Content-Disposition", `form-data; name="file"; filename="scan.tif"`)
-		h.Set("Content-Type", f.mimeType)
-		fw, err := mw.CreatePart(h)
+	if len(form.fileContent) > 0 || form.mimeType != "" {
+		filePartHeaders := make(textproto.MIMEHeader)
+		filePartHeaders.Set("Content-Disposition", `form-data; name="file"; filename="scan.tif"`)
+		filePartHeaders.Set("Content-Type", form.mimeType)
+		filePartWriter, err := multipartWriter.CreatePart(filePartHeaders)
 		if err != nil {
 			t.Fatalf("create file part: %v", err)
 		}
-		if _, err := fw.Write(f.fileContent); err != nil {
+		if _, err := filePartWriter.Write(form.fileContent); err != nil {
 			t.Fatalf("write file content: %v", err)
 		}
 	}
 
-	mw.Close()
-	return &body, mw.FormDataContentType()
+	multipartWriter.Close()
+	return &body, multipartWriter.FormDataContentType()
 }
 
 // decodeUploadResponse decodes a 202 response body into an uploadResponse.
@@ -477,9 +476,9 @@ func assertErrorResponse(t *testing.T, rec *httptest.ResponseRecorder, wantStatu
 	if rec.Code != wantStatus {
 		t.Errorf("status: got %d, want %d", rec.Code, wantStatus)
 	}
-	ct := rec.Header().Get("Content-Type")
-	if !strings.HasPrefix(ct, "application/json") {
-		t.Errorf("content-type: got %q, want application/json", ct)
+	contentType := rec.Header().Get("Content-Type")
+	if !strings.HasPrefix(contentType, "application/json") {
+		t.Errorf("content-type: got %q, want application/json", contentType)
 	}
 	var errResp errorResponse
 	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
@@ -493,10 +492,10 @@ func assertErrorResponse(t *testing.T, rec *httptest.ResponseRecorder, wantStatu
 // runMigrations runs the actual migration files against the test database,
 // so the test schema stays in sync with production.
 func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	sql, err := os.ReadFile("../../db/migrations/001_create_sheets.sql")
+	migrationSQL, err := os.ReadFile("../../db/migrations/001_create_sheets.up.sql")
 	if err != nil {
 		return fmt.Errorf("read migration file: %w", err)
 	}
-	_, err = pool.Exec(ctx, string(sql))
+	_, err = pool.Exec(ctx, string(migrationSQL))
 	return err
 }
