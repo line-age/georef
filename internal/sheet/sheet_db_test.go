@@ -2,6 +2,9 @@ package sheet_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -16,7 +19,6 @@ import (
 func TestSheetDB(t *testing.T) {
 	ctx := context.Background()
 
-	// Spin up a real database container. Requires Docker.
 	ctr, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        "postgres:16-alpine",
@@ -57,63 +59,173 @@ func TestSheetDB(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	access := sheet.NewDB(pool)
+	sheets := sheet.NewRepository(pool)
 
-	t.Run("create and get", func(t *testing.T) {
-		s := newTestSheet("01JTEST00000000000000000001")
-		if err := access.Create(ctx, s); err != nil {
+	// drainQueue processes all claimable sheets so each subtest starts with a
+	// known-empty queue. Required because subtests share one database.
+	drainQueue := func() {
+		for {
+			found, err := sheets.ProcessNext(ctx, func(_ context.Context, _ *model.Sheet) (string, error) {
+				return "drained", nil
+			})
+			if err != nil || !found {
+				break
+			}
+		}
+	}
+
+	// Must run before any sheet exists in the DB so the queue is genuinely empty.
+	t.Run("process_next_returns_false_when_queue_empty", func(t *testing.T) {
+		found, err := sheets.ProcessNext(ctx, func(_ context.Context, _ *model.Sheet) (string, error) {
+			return "", nil
+		})
+		if err != nil {
+			t.Fatalf("ProcessNext: %v", err)
+		}
+		if found {
+			t.Error("want false when nothing claimable, got true")
+		}
+	})
+
+	t.Run("create_and_get", func(t *testing.T) {
+		newSheet := newTestSheet("01JTEST00000000000000000001")
+		if err := sheets.Create(ctx, newSheet); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		got, err := access.GetByID(ctx, s.ID)
+		fetchedSheet, err := sheets.GetByID(ctx, newSheet.ID)
 		if err != nil {
 			t.Fatalf("GetByID: %v", err)
 		}
-		if got.Title != s.Title {
-			t.Errorf("title: got %q, want %q", got.Title, s.Title)
+		if fetchedSheet.Title != newSheet.Title {
+			t.Errorf("title: got %q, want %q", fetchedSheet.Title, newSheet.Title)
 		}
-		if got.Status != model.StatusProcessing {
-			t.Errorf("status: got %q, want %q", got.Status, model.StatusProcessing)
+		if fetchedSheet.Status != model.StatusProcessing {
+			t.Errorf("status: got %q, want %q", fetchedSheet.Status, model.StatusProcessing)
 		}
 	})
 
-	t.Run("claim next picks up processing sheet", func(t *testing.T) {
-		s := newTestSheet("01JTEST00000000000000000002")
-		if err := access.Create(ctx, s); err != nil {
+	t.Run("process_next_marks_sheet_ready_on_success", func(t *testing.T) {
+		drainQueue() // consume any sheets left processing by prior subtests
+		newSheet := newTestSheet("01JTEST00000000000000000010")
+		if err := sheets.Create(ctx, newSheet); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		claimed, err := access.ClaimNext(ctx)
+
+		wantPyramidPath := "sheets/" + newSheet.ID + "/pyramid.tif"
+		found, err := sheets.ProcessNext(ctx, func(_ context.Context, claimedSheet *model.Sheet) (string, error) {
+			if claimedSheet.ID != newSheet.ID {
+				t.Errorf("processor received id %q, want %q", claimedSheet.ID, newSheet.ID)
+			}
+			return wantPyramidPath, nil
+		})
 		if err != nil {
-			t.Fatalf("ClaimNext: %v", err)
+			t.Fatalf("ProcessNext: %v", err)
 		}
-		if claimed == nil {
-			t.Fatal("ClaimNext: got nil, want a sheet")
+		if !found {
+			t.Fatal("want found=true, got false")
+		}
+
+		processedSheet, err := sheets.GetByID(ctx, newSheet.ID)
+		if err != nil {
+			t.Fatalf("GetByID: %v", err)
+		}
+		if processedSheet.Status != model.StatusReady {
+			t.Errorf("status: got %q, want %q", processedSheet.Status, model.StatusReady)
+		}
+		if processedSheet.PyramidPath != wantPyramidPath {
+			t.Errorf("pyramid_path: got %q, want %q", processedSheet.PyramidPath, wantPyramidPath)
 		}
 	})
 
-	t.Run("soft delete sets status and deleted_at", func(t *testing.T) {
-		s := newTestSheet("01JTEST00000000000000000003")
-		if err := access.Create(ctx, s); err != nil {
+	t.Run("process_next_marks_sheet_failed_on_fn_error", func(t *testing.T) {
+		drainQueue() // consume any sheets left processing by prior subtests
+		newSheet := newTestSheet("01JTEST00000000000000000011")
+		if err := sheets.Create(ctx, newSheet); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		if err := access.SoftDelete(ctx, s.ID); err != nil {
+
+		convertErr := errors.New("vips exited with code 1")
+		found, err := sheets.ProcessNext(ctx, func(_ context.Context, _ *model.Sheet) (string, error) {
+			return "", convertErr
+		})
+		if err != nil {
+			t.Fatalf("ProcessNext: %v", err)
+		}
+		if !found {
+			t.Fatal("want found=true, got false")
+		}
+
+		failedSheet, err := sheets.GetByID(ctx, newSheet.ID)
+		if err != nil {
+			t.Fatalf("GetByID: %v", err)
+		}
+		if failedSheet.Status != model.StatusFailed {
+			t.Errorf("status: got %q, want %q", failedSheet.Status, model.StatusFailed)
+		}
+		if failedSheet.ErrorMessage != convertErr.Error() {
+			t.Errorf("error_message: got %q, want %q", failedSheet.ErrorMessage, convertErr.Error())
+		}
+	})
+
+	t.Run("process_next_picks_up_failed_sheet", func(t *testing.T) {
+		drainQueue() // consume any sheets left processing/failed by prior subtests
+		newSheet := newTestSheet("01JTEST00000000000000000012")
+		if err := sheets.Create(ctx, newSheet); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+
+		// First attempt: fail.
+		_, err := sheets.ProcessNext(ctx, func(_ context.Context, _ *model.Sheet) (string, error) {
+			return "", errors.New("transient error")
+		})
+		if err != nil {
+			t.Fatalf("ProcessNext (fail): %v", err)
+		}
+
+		// Second attempt: succeed (failed sheets are claimable).
+		found, err := sheets.ProcessNext(ctx, func(_ context.Context, _ *model.Sheet) (string, error) {
+			return "sheets/" + newSheet.ID + "/pyramid.tif", nil
+		})
+		if err != nil {
+			t.Fatalf("ProcessNext (retry): %v", err)
+		}
+		if !found {
+			t.Error("want found=true on retry, got false")
+		}
+
+		retriedSheet, err := sheets.GetByID(ctx, newSheet.ID)
+		if err != nil {
+			t.Fatalf("GetByID: %v", err)
+		}
+		if retriedSheet.Status != model.StatusReady {
+			t.Errorf("status after retry: got %q, want %q", retriedSheet.Status, model.StatusReady)
+		}
+	})
+
+	t.Run("soft_delete_sets_status_and_deleted_at", func(t *testing.T) {
+		newSheet := newTestSheet("01JTEST00000000000000000003")
+		if err := sheets.Create(ctx, newSheet); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		if err := sheets.SoftDelete(ctx, newSheet.ID); err != nil {
 			t.Fatalf("SoftDelete: %v", err)
 		}
-		got, err := access.GetByID(ctx, s.ID)
+		deletedSheet, err := sheets.GetByID(ctx, newSheet.ID)
 		if err != nil {
 			t.Fatalf("GetByID after delete: %v", err)
 		}
-		if got.Status != model.StatusDeleted {
-			t.Errorf("status after delete: got %q, want %q", got.Status, model.StatusDeleted)
+		if deletedSheet.Status != model.StatusDeleted {
+			t.Errorf("status after delete: got %q, want %q", deletedSheet.Status, model.StatusDeleted)
 		}
-		if got.DeletedAt == nil {
+		if deletedSheet.DeletedAt == nil {
 			t.Error("deleted_at should be set after soft delete")
 		}
 	})
 
-	t.Run("get unknown id returns ErrNotFound", func(t *testing.T) {
-		_, err := access.GetByID(ctx, "DOESNOTEXIST")
-		var nf sheet.ErrNotFound
-		if !isErrNotFound(err, &nf) {
+	t.Run("get_unknown_id_returns_ErrNotFound", func(t *testing.T) {
+		_, err := sheets.GetByID(ctx, "DOESNOTEXIST")
+		var notFoundErr sheet.ErrNotFound
+		if !errors.As(err, &notFoundErr) {
 			t.Errorf("expected ErrNotFound, got %T: %v", err, err)
 		}
 	})
@@ -131,37 +243,10 @@ func newTestSheet(id string) *model.Sheet {
 }
 
 func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	_, err := pool.Exec(ctx, `
-		CREATE TYPE sheet_status AS ENUM ('processing','ready','failed','deleted');
-
-		CREATE TABLE IF NOT EXISTS sheets (
-			id                  TEXT            PRIMARY KEY,
-			title               TEXT            NOT NULL,
-			institution         TEXT,
-			source_url          TEXT,
-			rights_note         TEXT,
-			status              sheet_status    NOT NULL DEFAULT 'processing',
-			error_message       TEXT,
-			original_checksum   TEXT            NOT NULL,
-			original_size       BIGINT          NOT NULL,
-			original_path       TEXT            NOT NULL,
-			pyramid_path        TEXT,
-			uploader_github_id  BIGINT,
-			created_at          TIMESTAMPTZ     NOT NULL DEFAULT now(),
-			updated_at          TIMESTAMPTZ     NOT NULL DEFAULT now(),
-			deleted_at          TIMESTAMPTZ
-		);
-	`)
+	migrationSQL, err := os.ReadFile("../../db/migrations/001_create_sheets.up.sql")
+	if err != nil {
+		return fmt.Errorf("read migration file: %w", err)
+	}
+	_, err = pool.Exec(ctx, string(migrationSQL))
 	return err
-}
-
-func isErrNotFound(err error, target *sheet.ErrNotFound) bool {
-	if err == nil {
-		return false
-	}
-	nf, ok := err.(sheet.ErrNotFound)
-	if ok {
-		*target = nf
-	}
-	return ok
 }
