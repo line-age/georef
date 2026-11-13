@@ -32,11 +32,11 @@ paths:
                 title:
                   type: string
                   description: Display title for the map sheet.
-                  example: "Ordnance Survey 1:25000 — Sheet NY30"
+                  example: "Topographic survey 1:25000 — Sheet 42"
                 institution:
                   type: string
                   description: Holding institution (optional).
-                  example: "British Library"
+                  example: "National Map Archive"
                 source_url:
                   type: string
                   description: URL of the original source record (optional).
