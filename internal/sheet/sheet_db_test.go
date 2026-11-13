@@ -61,11 +61,13 @@ func TestSheetDB(t *testing.T) {
 
 	sheets := sheet.NewRepository(pool)
 
+	const defaultMaxRetries = 3
+
 	// drainQueue processes all claimable sheets so each subtest starts with a
 	// known-empty queue. Required because subtests share one database.
 	drainQueue := func() {
 		for {
-			found, err := sheets.ProcessNext(ctx, func(_ context.Context, _ *model.Sheet) (string, error) {
+			found, err := sheets.ProcessNext(ctx, defaultMaxRetries, func(_ context.Context, _ *model.Sheet) (string, error) {
 				return "drained", nil
 			})
 			if err != nil || !found {
@@ -76,7 +78,7 @@ func TestSheetDB(t *testing.T) {
 
 	// Must run before any sheet exists in the DB so the queue is genuinely empty.
 	t.Run("process_next_returns_false_when_queue_empty", func(t *testing.T) {
-		found, err := sheets.ProcessNext(ctx, func(_ context.Context, _ *model.Sheet) (string, error) {
+		found, err := sheets.ProcessNext(ctx, defaultMaxRetries, func(_ context.Context, _ *model.Sheet) (string, error) {
 			return "", nil
 		})
 		if err != nil {
@@ -112,7 +114,7 @@ func TestSheetDB(t *testing.T) {
 		}
 
 		wantPyramidPath := "sheets/" + newSheet.ID + "/pyramid.tif"
-		found, err := sheets.ProcessNext(ctx, func(_ context.Context, claimedSheet *model.Sheet) (string, error) {
+		found, err := sheets.ProcessNext(ctx, defaultMaxRetries, func(_ context.Context, claimedSheet *model.Sheet) (string, error) {
 			if claimedSheet.ID != newSheet.ID {
 				t.Errorf("processor received id %q, want %q", claimedSheet.ID, newSheet.ID)
 			}
@@ -145,7 +147,7 @@ func TestSheetDB(t *testing.T) {
 		}
 
 		convertErr := errors.New("vips exited with code 1")
-		found, err := sheets.ProcessNext(ctx, func(_ context.Context, _ *model.Sheet) (string, error) {
+		found, err := sheets.ProcessNext(ctx, defaultMaxRetries, func(_ context.Context, _ *model.Sheet) (string, error) {
 			return "", convertErr
 		})
 		if err != nil {
@@ -174,16 +176,16 @@ func TestSheetDB(t *testing.T) {
 			t.Fatalf("Create: %v", err)
 		}
 
-		// First attempt: fail.
-		_, err := sheets.ProcessNext(ctx, func(_ context.Context, _ *model.Sheet) (string, error) {
+		// First attempt: fail — with retries remaining, status returns to processing.
+		_, err := sheets.ProcessNext(ctx, defaultMaxRetries, func(_ context.Context, _ *model.Sheet) (string, error) {
 			return "", errors.New("transient error")
 		})
 		if err != nil {
 			t.Fatalf("ProcessNext (fail): %v", err)
 		}
 
-		// Second attempt: succeed (failed sheets are claimable).
-		found, err := sheets.ProcessNext(ctx, func(_ context.Context, _ *model.Sheet) (string, error) {
+		// Second attempt: succeed — processing sheets with retry_count < max_retries are claimable.
+		found, err := sheets.ProcessNext(ctx, defaultMaxRetries, func(_ context.Context, _ *model.Sheet) (string, error) {
 			return "sheets/" + newSheet.ID + "/pyramid.tif", nil
 		})
 		if err != nil {
@@ -229,6 +231,75 @@ func TestSheetDB(t *testing.T) {
 			t.Errorf("expected ErrNotFound, got %T: %v", err, err)
 		}
 	})
+
+	t.Run("process_next_increments_retry_count_on_failure", func(t *testing.T) {
+		drainQueue()
+		newSheet := newTestSheet("01JTEST00000000000000000013")
+		if err := sheets.Create(ctx, newSheet); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+
+		_, err := sheets.ProcessNext(ctx, defaultMaxRetries, func(_ context.Context, _ *model.Sheet) (string, error) {
+			return "", errors.New("transient")
+		})
+		if err != nil {
+			t.Fatalf("ProcessNext: %v", err)
+		}
+
+		afterFirstFail, err := sheets.GetByID(ctx, newSheet.ID)
+		if err != nil {
+			t.Fatalf("GetByID: %v", err)
+		}
+		if afterFirstFail.RetryCount != 1 {
+			t.Errorf("retry_count after first failure: got %d, want 1", afterFirstFail.RetryCount)
+		}
+		// Status must be processing — retries remain.
+		if afterFirstFail.Status != model.StatusProcessing {
+			t.Errorf("status after first failure: got %q, want processing", afterFirstFail.Status)
+		}
+	})
+
+	t.Run("process_next_marks_terminal_when_retries_exhausted", func(t *testing.T) {
+		drainQueue()
+		newSheet := newTestSheet("01JTEST00000000000000000014")
+		if err := sheets.Create(ctx, newSheet); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+
+		maxRetries := 2
+		convertErr := errors.New("permanent failure")
+
+		for i := 0; i < maxRetries; i++ {
+			_, err := sheets.ProcessNext(ctx, maxRetries, func(_ context.Context, _ *model.Sheet) (string, error) {
+				return "", convertErr
+			})
+			if err != nil {
+				t.Fatalf("ProcessNext attempt %d: %v", i+1, err)
+			}
+		}
+
+		terminalSheet, err := sheets.GetByID(ctx, newSheet.ID)
+		if err != nil {
+			t.Fatalf("GetByID: %v", err)
+		}
+		if terminalSheet.Status != model.StatusFailed {
+			t.Errorf("status after exhausted retries: got %q, want failed", terminalSheet.Status)
+		}
+		if terminalSheet.RetryCount != int32(maxRetries) {
+			t.Errorf("retry_count: got %d, want %d", terminalSheet.RetryCount, maxRetries)
+		}
+
+		// Exhausted sheet must not be claimable.
+		found, err := sheets.ProcessNext(ctx, maxRetries, func(_ context.Context, _ *model.Sheet) (string, error) {
+			return "should_not_reach", nil
+		})
+		if err != nil {
+			t.Fatalf("ProcessNext after exhaustion: %v", err)
+		}
+		if found {
+			t.Error("exhausted sheet must not be re-claimed")
+		}
+	})
 }
 
 func newTestSheet(id string) *model.Sheet {
@@ -243,10 +314,18 @@ func newTestSheet(id string) *model.Sheet {
 }
 
 func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	migrationSQL, err := os.ReadFile("../../db/migrations/001_create_sheets.up.sql")
-	if err != nil {
-		return fmt.Errorf("read migration file: %w", err)
+	files := []string{
+		"../../db/migrations/001_create_sheets.up.sql",
+		"../../db/migrations/002_add_retry_count.up.sql",
 	}
-	_, err = pool.Exec(ctx, string(migrationSQL))
-	return err
+	for _, path := range files {
+		sql, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", path, err)
+		}
+		if _, err := pool.Exec(ctx, string(sql)); err != nil {
+			return fmt.Errorf("exec %s: %w", path, err)
+		}
+	}
+	return nil
 }
