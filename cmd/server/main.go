@@ -14,12 +14,19 @@ import (
 	"github.com/line-age/georef/internal/storage"
 )
 
+const (
+	logMsgInvalidConfig  = "invalid configuration"
+	logMsgConnectDB      = "connect to database"
+	logMsgServerStarting = "server starting"
+	logMsgServerStopped  = "server stopped"
+)
+
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
 	cfg, err := config.LoadServer()
 	if err != nil {
-		slog.Error("invalid configuration", "err", err)
+		slog.Error(logMsgInvalidConfig, "err", err)
 		os.Exit(1)
 	}
 
@@ -27,18 +34,18 @@ func main() {
 
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
-		slog.Error("connect to database", "err", err)
+		slog.Error(logMsgConnectDB, "err", err)
 		os.Exit(1)
 	}
 	defer pool.Close()
 
-	sheets := sheet.NewDB(pool)
+	sheets := sheet.NewRepository(pool)
 	store := storage.NewLocalStore(cfg.StorageRoot)
-	h := api.New(sheets, store, cfg.BaseURL, cfg.MaxUploadSize)
+	apiHandler := api.New(sheets, store, cfg.BaseURL, cfg.MaxUploadSize)
 
-	slog.Info("server starting", "addr", cfg.Addr)
-	if err := http.ListenAndServe(cfg.Addr, h.Routes()); err != nil {
-		slog.Error("server stopped", "err", err)
+	slog.Info(logMsgServerStarting, "addr", cfg.Addr)
+	if err := http.ListenAndServe(cfg.Addr, apiHandler.Routes()); err != nil {
+		slog.Error(logMsgServerStopped, "err", err)
 		os.Exit(1)
 	}
 }
