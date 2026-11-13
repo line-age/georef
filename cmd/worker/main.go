@@ -48,7 +48,7 @@ func main() {
 		TileWidth:  cfg.VipsTileWidth,
 		TileHeight: cfg.VipsTileHeight,
 	}
-	conversionWorker := worker.New(sheets, store, converter, cfg.PollInterval)
+	conversionWorker := worker.New(sheets, store, converter, cfg.PollInterval, cfg.MaxConversionRetries)
 
 	slog.Info(logMsgWorkerStarting, "poll_interval", cfg.PollInterval)
 	conversionWorker.Run(ctx)
