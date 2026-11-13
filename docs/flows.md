@@ -64,7 +64,7 @@ flowchart TD
     M --> N{storage write OK?}
     N -->|no| O[return error to ProcessNext]
     N -->|yes| P[return pyramid path to ProcessNext]
-    L --> Q["SetSheetFailed\nstatus = 'failed'\nerror message saved"]
+    L --> Q["RecordConversionFailure\nretry_count++\nretry_count < MAX → status = 'processing'\nretry_count >= MAX → status = 'failed'"]
     O --> Q
     P --> R["SetSheetReady\nstatus = 'ready'\npyramid path saved"]
     Q --> S[COMMIT transaction]
@@ -80,6 +80,7 @@ queue. `ProcessNext` opens a database transaction and runs:
 ```sql
 SELECT * FROM sheets
 WHERE status IN ('processing', 'failed')
+  AND retry_count < $1   -- $1 = MAX_CONVERSION_RETRIES; skips terminal sheets
 ORDER BY created_at
 LIMIT 1
 FOR UPDATE SKIP LOCKED;
@@ -91,8 +92,9 @@ available sheet immediately. This lets multiple worker instances run safely
 without coordinating with each other.
 
 The lock is held for the entire conversion. When `convertSheet` returns, the
-worker writes the final status (`ready` or `failed`) and commits — releasing
-the lock in the same step.
+worker writes the final status (`ready`, `processing` for retry, or `failed`
+when the retry budget is exhausted) and commits — releasing the lock in the
+same step.
 
 ### Atomic file writes
 
@@ -111,38 +113,36 @@ The temp file is always deleted, whether conversion succeeded or not.
 
 ## Retry flow
 
-A failed sheet is not stuck. Because `ClaimNext` picks up rows with
-`status IN ('processing', 'failed')`, any failed sheet is eligible for the
-next conversion attempt on the next poll.
+Retries are bounded. Each failed attempt increments `retry_count` on the
+sheet. `ClaimNext` only picks up rows where `retry_count < MAX_CONVERSION_RETRIES`
+(default 3), so a permanently broken sheet is not retried indefinitely.
 
 ```mermaid
 flowchart TD
-    A([sheet status = 'failed']) --> B[worker polls]
-    B --> C[ClaimNext picks up the row\nbecause status = 'failed' qualifies]
-    C --> D[convertSheet runs again\nusing the same original scan in storage]
-    D --> E{conversion succeeds?}
-    E -->|yes| F["status = 'ready'"]
-    E -->|no| G["status = 'failed' again\nnew error message saved"]
-    G --> B
+    A([conversion fails]) --> B["RecordConversionFailure\nretry_count = retry_count + 1"]
+    B --> C{retry_count >= MAX_RETRIES?}
+    C -->|no| D["status = 'processing'\nsheet re-enters the queue"]
+    C -->|yes| E["status = 'failed'\nterminal — ClaimNext skips it"]
+    D --> F[worker polls on next interval]
+    F --> G[ClaimNext picks it up\nbecause retry_count < MAX_RETRIES]
+    G --> H[convertSheet runs again]
+    H --> I{succeeds?}
+    I -->|yes| J["status = 'ready'"]
+    I -->|no| B
 ```
 
 ### What this means in practice
 
 - **Transient failures** (a vips crash, a full disk that gets cleared, a
-  network blip to S3) resolve on their own the next time the worker polls.
-- **Permanent failures** (a corrupt scan that vips cannot parse) will be
-  retried on every poll cycle indefinitely. There is no retry counter yet.
-  To stop retrying a permanently broken sheet, delete it and re-upload a
-  corrected file.
+  network blip to S3) resolve on their own within `MAX_CONVERSION_RETRIES`
+  attempts.
+- **Permanent failures** (a corrupt scan that vips cannot parse) are retried
+  up to `MAX_CONVERSION_RETRIES` times, then the sheet is marked `failed`
+  and left untouched. To retry again, delete the sheet and re-upload.
 - **Worker crash mid-conversion:** if the worker dies while `convertSheet` is
   running, the transaction is never committed. Postgres rolls it back
-  automatically, returning the row to `status = 'processing'`. The next worker
-  that polls picks it up and tries again.
-
-> **Future work:** add a `retry_count` column to the `sheets` table and a
-> `MAX_RETRIES` check in `ClaimNext`. A sheet that exceeds the limit would stay
-> `failed` and not be re-queued, preventing an infinite retry loop for
-> permanently corrupt files.
+  automatically, returning the sheet to its previous status without
+  incrementing `retry_count`. The next worker that polls picks it up.
 
 ---
 
@@ -152,9 +152,10 @@ flowchart TD
 stateDiagram-v2
     [*] --> processing: POST /sheets\n(upload succeeds)
     processing --> ready: worker converts successfully
-    processing --> failed: worker conversion error\nor worker crash (rollback → re-queued)
-    failed --> ready: worker retries and succeeds
-    failed --> failed: worker retries and fails again
+    processing --> failed: worker exhausts retry budget\n(retry_count >= MAX_CONVERSION_RETRIES)
+    processing --> processing: worker attempt fails\nbut retry budget remains\n(retry_count < MAX)
+    failed --> processing: manual re-upload after delete
+    processing --> ready: worker converts successfully
     ready --> deleted: DELETE /sheets/{id}
     processing --> deleted: DELETE /sheets/{id}
     failed --> deleted: DELETE /sheets/{id}
