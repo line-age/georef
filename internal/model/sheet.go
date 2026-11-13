@@ -27,6 +27,7 @@ type Sheet struct {
 	// Soft-delete sets status to deleted; the row and ID are never removed.
 	Status       Status
 	ErrorMessage string // non-empty only when Status == StatusFailed
+	RetryCount   int32  // number of completed (not crashed) conversion attempts that failed
 
 	// Original file — recorded at upload, never modified.
 	OriginalChecksum string // SHA-256 hex
