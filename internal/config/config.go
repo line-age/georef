@@ -20,11 +20,12 @@ type ServerConfig struct {
 // WorkerConfig holds all configuration for the conversion worker process.
 // Loaded once at startup via LoadWorker; never read from env after that.
 type WorkerConfig struct {
-	DatabaseURL    string
-	StorageRoot    string
-	PollInterval   time.Duration
-	VipsTileWidth  int
-	VipsTileHeight int
+	DatabaseURL          string
+	StorageRoot          string
+	PollInterval         time.Duration
+	VipsTileWidth        int
+	VipsTileHeight       int
+	MaxConversionRetries int
 }
 
 const (
@@ -67,13 +68,18 @@ func LoadWorker() (*WorkerConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	maxConversionRetries, err := envInt("MAX_CONVERSION_RETRIES", 3)
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &WorkerConfig{
-		DatabaseURL:    readEnv("DATABASE_URL"),
-		StorageRoot:    readEnv("STORAGE_ROOT"),
-		PollInterval:   pollInterval,
-		VipsTileWidth:  vipsTileWidth,
-		VipsTileHeight: vipsTileHeight,
+		DatabaseURL:          readEnv("DATABASE_URL"),
+		StorageRoot:          readEnv("STORAGE_ROOT"),
+		PollInterval:         pollInterval,
+		VipsTileWidth:        vipsTileWidth,
+		VipsTileHeight:       vipsTileHeight,
+		MaxConversionRetries: maxConversionRetries,
 	}
 	return cfg, checkRequired(
 		requireNonEmpty("DATABASE_URL", cfg.DatabaseURL),

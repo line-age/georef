@@ -35,12 +35,15 @@ type Accessor interface {
 	// Subsequent IIIF requests for the ID must return 410.
 	SoftDelete(ctx context.Context, id string) error
 
-	// ProcessNext atomically claims one processable sheet (status processing or failed),
-	// calls processor within the same transaction so the row lock is held during conversion,
-	// then marks the sheet ready or failed based on processor's return value and commits.
+	// ProcessNext atomically claims one processable sheet whose retry_count is below
+	// maxRetries, calls processor within the same transaction so the row lock is held
+	// during conversion, then commits with the new status:
+	//   - processor succeeds → status ready
+	//   - processor fails, retry_count+1 < maxRetries → status processing (re-queued)
+	//   - processor fails, retry_count+1 >= maxRetries → status failed (terminal)
 	// Returns false when the queue is empty. If ctx is cancelled mid-conversion the
-	// transaction rolls back and the sheet remains claimable.
-	ProcessNext(ctx context.Context, processor func(ctx context.Context, sheet *model.Sheet) (pyramidPath string, err error)) (bool, error)
+	// transaction rolls back and the sheet remains claimable without incrementing retry_count.
+	ProcessNext(ctx context.Context, maxRetries int, processor func(ctx context.Context, sheet *model.Sheet) (pyramidPath string, err error)) (bool, error)
 }
 
 // ErrNotFound is returned by GetByID when the ID does not exist.

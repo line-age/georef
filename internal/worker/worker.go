@@ -31,15 +31,17 @@ type Worker struct {
 	store        storage.Store
 	converter    convert.Converter
 	pollInterval time.Duration
+	maxRetries   int
 }
 
 // New returns a Worker wired to the given dependencies.
-func New(sheets sheet.Accessor, store storage.Store, converter convert.Converter, pollInterval time.Duration) *Worker {
+func New(sheets sheet.Accessor, store storage.Store, converter convert.Converter, pollInterval time.Duration, maxRetries int) *Worker {
 	return &Worker{
 		sheets:       sheets,
 		store:        store,
 		converter:    converter,
 		pollInterval: pollInterval,
+		maxRetries:   maxRetries,
 	}
 }
 
@@ -55,7 +57,7 @@ func (worker *Worker) Run(ctx context.Context) {
 		default:
 		}
 
-		found, err := worker.sheets.ProcessNext(ctx, worker.convertSheet)
+		found, err := worker.sheets.ProcessNext(ctx, worker.maxRetries, worker.convertSheet)
 		if err != nil {
 			slog.ErrorContext(ctx, logMsgProcessNextFailed, "err", err)
 		}

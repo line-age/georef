@@ -122,7 +122,7 @@ func (repository *repository) SoftDelete(ctx context.Context, id string) error {
 	return ErrNotFound{ID: id}
 }
 
-func (repository *repository) ProcessNext(ctx context.Context, processor func(ctx context.Context, sheet *model.Sheet) (string, error)) (bool, error) {
+func (repository *repository) ProcessNext(ctx context.Context, maxRetries int, processor func(ctx context.Context, sheet *model.Sheet) (string, error)) (bool, error) {
 	transaction, err := repository.pool.Begin(ctx)
 	if err != nil {
 		return false, err
@@ -131,7 +131,7 @@ func (repository *repository) ProcessNext(ctx context.Context, processor func(ct
 
 	transactionQueries := repository.queries.WithTx(transaction)
 
-	row, err := transactionQueries.ClaimNext(ctx)
+	row, err := transactionQueries.ClaimNext(ctx, int32(maxRetries))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -143,9 +143,10 @@ func (repository *repository) ProcessNext(ctx context.Context, processor func(ct
 	pyramidPath, processorErr := processor(ctx, sheet)
 
 	if processorErr != nil {
-		_, err = transactionQueries.SetSheetFailed(ctx, dbgen.SetSheetFailedParams{
+		_, err = transactionQueries.RecordConversionFailure(ctx, dbgen.RecordConversionFailureParams{
 			ID:           sheet.ID,
 			ErrorMessage: pgtype.Text{String: processorErr.Error(), Valid: true},
+			MaxRetries:   int32(maxRetries),
 		})
 	} else {
 		_, err = transactionQueries.SetSheetReady(ctx, dbgen.SetSheetReadyParams{
@@ -180,6 +181,7 @@ func toSheetModel(row dbgen.Sheet) *model.Sheet {
 		RightsNote:       row.RightsNote.String,
 		Status:           model.Status(row.Status),
 		ErrorMessage:     row.ErrorMessage.String,
+		RetryCount:       row.RetryCount,
 		OriginalChecksum: row.OriginalChecksum,
 		OriginalSize:     row.OriginalSize,
 		OriginalPath:     row.OriginalPath,
