@@ -71,4 +71,5 @@ type Sheet struct {
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
 	DeletedAt        pgtype.Timestamptz
+	RetryCount       int32
 }
