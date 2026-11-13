@@ -15,8 +15,8 @@ const (
 	msgFileTypeInvalid = "unsupported file type; accepted: image/tiff, image/jpeg"
 )
 
-// allowedMIMETypes lists the file types vips can convert to a pyramidal TIFF.
-var allowedMIMETypes = map[string]bool{
+// allowedContentTypes lists the file types vips can convert to a pyramidal TIFF.
+var allowedContentTypes = map[string]bool{
 	"image/tiff": true,
 	"image/jpeg": true,
 }
@@ -34,43 +34,43 @@ type uploadRequest struct {
 // Returns an error if the form is malformed or the file field is missing.
 // If the body exceeds the size limit set by MaxBytesReader, the error wraps
 // *http.MaxBytesError so the caller can return 413.
-func parseUploadRequest(r *http.Request) (*uploadRequest, error) {
-	if err := r.ParseMultipartForm(multipartMaxMem); err != nil {
-		var mbe *http.MaxBytesError
-		if errors.As(err, &mbe) {
+func parseUploadRequest(request *http.Request) (*uploadRequest, error) {
+	if err := request.ParseMultipartForm(multipartMemoryLimit); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
 			return nil, err // preserve type; caller checks with errors.As
 		}
 		return nil, errors.New(msgInvalidForm)
 	}
-	file, _, err := r.FormFile("file")
+	file, _, err := request.FormFile("file")
 	if err != nil {
 		return nil, errors.New(msgFileRequired)
 	}
 	return &uploadRequest{
-		Title:       r.FormValue("title"),
-		Institution: r.FormValue("institution"),
-		SourceURL:   r.FormValue("source_url"),
-		RightsNote:  r.FormValue("rights_note"),
+		Title:       request.FormValue("title"),
+		Institution: request.FormValue("institution"),
+		SourceURL:   request.FormValue("source_url"),
+		RightsNote:  request.FormValue("rights_note"),
 		File:        file,
 	}, nil
 }
 
 // validate checks that all required fields are present and that the file's
-// actual content matches an accepted type. It sniffs the first 512 bytes rather
+// actual content matches an accepted type. It reads the first 512 bytes rather
 // than trusting the client-supplied Content-Type header.
-func (req *uploadRequest) validate() error {
-	if req.Title == "" {
+func (form *uploadRequest) validate() error {
+	if form.Title == "" {
 		return errors.New(msgTitleRequired)
 	}
 
-	sniff := make([]byte, 512)
-	n, _ := req.File.Read(sniff)
-	if _, err := req.File.Seek(0, io.SeekStart); err != nil {
+	contentTypeProbeBytes := make([]byte, 512)
+	bytesRead, _ := form.File.Read(contentTypeProbeBytes)
+	if _, err := form.File.Seek(0, io.SeekStart); err != nil {
 		return errors.New(msgInvalidForm)
 	}
 
-	detected := http.DetectContentType(sniff[:n])
-	if !allowedMIMETypes[detected] {
+	detectedContentType := http.DetectContentType(contentTypeProbeBytes[:bytesRead])
+	if !allowedContentTypes[detectedContentType] {
 		return errors.New(msgFileTypeInvalid)
 	}
 	return nil

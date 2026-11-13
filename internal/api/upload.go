@@ -15,11 +15,13 @@ import (
 )
 
 const (
-	thirtyTwoMB     = 32 << 20
-	multipartMaxMem = thirtyTwoMB // memory budget for multipart form parsing
+	multipartMemoryLimit = 32 << 20 // bytes kept in memory when parsing multipart form; excess spills to disk
 
-	errMsgStoreFailed  = "failed to store scan"
-	errMsgRecordFailed = "failed to create sheet record"
+	msgStoreFailed  = "failed to store scan"
+	msgRecordFailed = "failed to create sheet record"
+
+	logMsgStoreOriginalScanFailed = "store original scan"
+	logMsgCreateSheetRecordFailed = "create sheet record"
 )
 
 // uploadResponse is the JSON body returned on a successful upload.
@@ -30,81 +32,81 @@ type uploadResponse struct {
 	ManifestURL string `json:"manifest_url"`
 }
 
-func (h *Handler) uploadSheet(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, h.maxUploadSize)
+func (handler *Handler) uploadSheet(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, handler.maxUploadSize)
 
-	req, err := parseUploadRequest(r)
+	uploadFormData, err := parseUploadRequest(r)
 	if err != nil {
-		var mbe *http.MaxBytesError
-		if errors.As(err, &mbe) {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
 			writeError(w, http.StatusRequestEntityTooLarge, msgFileTooLarge)
 		} else {
 			writeError(w, http.StatusBadRequest, err.Error())
 		}
 		return
 	}
-	defer req.File.Close()
+	defer uploadFormData.File.Close()
 
-	if err := req.validate(); err != nil {
+	if err := uploadFormData.validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	id := ulid.Make().String()
 
-	checksum, size, originalPath, err := h.storeOriginalScan(r.Context(), id, req.File)
+	checksum, size, originalPath, err := handler.storeOriginalScan(r.Context(), id, uploadFormData.File)
 	if err != nil {
-		slog.ErrorContext(r.Context(), "store original scan", "id", id, "err", err)
-		writeError(w, http.StatusInternalServerError, errMsgStoreFailed)
+		slog.ErrorContext(r.Context(), logMsgStoreOriginalScanFailed, "id", id, "err", err)
+		writeError(w, http.StatusInternalServerError, msgStoreFailed)
 		return
 	}
 
-	s := &model.Sheet{
+	sheet := &model.Sheet{
 		ID:               id,
-		Title:            req.Title,
-		Institution:      req.Institution,
-		SourceURL:        req.SourceURL,
-		RightsNote:       req.RightsNote,
+		Title:            uploadFormData.Title,
+		Institution:      uploadFormData.Institution,
+		SourceURL:        uploadFormData.SourceURL,
+		RightsNote:       uploadFormData.RightsNote,
 		OriginalChecksum: checksum,
 		OriginalSize:     size,
 		OriginalPath:     originalPath,
 	}
 
-	if err := h.sheets.Create(r.Context(), s); err != nil {
-		slog.ErrorContext(r.Context(), "create sheet record", "id", id, "err", err)
-		writeError(w, http.StatusInternalServerError, errMsgRecordFailed)
+	if err := handler.sheets.Create(r.Context(), sheet); err != nil {
+		slog.ErrorContext(r.Context(), logMsgCreateSheetRecordFailed, "id", id, "err", err)
+		writeError(w, http.StatusInternalServerError, msgRecordFailed)
 		return
 	}
 
 	writeJSON(w, http.StatusAccepted, uploadResponse{
 		ID:          id,
-		SheetURL:    h.baseURL + "/sheets/" + id,
-		IIIFBaseURL: h.baseURL + "/iiif/" + id,
-		ManifestURL: h.baseURL + "/iiif/" + id + "/manifest",
+		SheetURL:    handler.baseURL + "/sheets/" + id,
+		IIIFBaseURL: handler.baseURL + "/iiif/" + id,
+		ManifestURL: handler.baseURL + "/iiif/" + id + "/manifest",
 	})
 }
 
 // storeOriginalScan streams the file to storage in a single pass,
 // computing the SHA-256 checksum and byte count along the way.
 // It returns the path at which the file was stored.
-func (h *Handler) storeOriginalScan(ctx context.Context, id string, file io.Reader) (checksum string, size int64, path string, err error) {
+func (handler *Handler) storeOriginalScan(ctx context.Context, id string, file io.Reader) (checksum string, size int64, path string, err error) {
 	hash := sha256.New()
-	cr := &countingReader{r: io.TeeReader(io.LimitReader(file, h.maxUploadSize), hash)}
-	storedPath, err := h.store.SaveOriginalScan(ctx, id, cr)
+	counter := &countingReader{reader: io.TeeReader(io.LimitReader(file, handler.maxUploadSize), hash)}
+	storedPath, err := handler.store.SaveOriginalScan(ctx, id, counter)
 	if err != nil {
 		return "", 0, "", err
 	}
-	return hex.EncodeToString(hash.Sum(nil)), cr.n, storedPath, nil
+	return hex.EncodeToString(hash.Sum(nil)), counter.bytesRead, storedPath, nil
 }
 
 // countingReader wraps an io.Reader and tracks the total bytes read.
 type countingReader struct {
-	r io.Reader
-	n int64
+	reader    io.Reader
+	bytesRead int64
 }
 
-func (c *countingReader) Read(p []byte) (n int, err error) {
-	n, err = c.r.Read(p)
-	c.n += int64(n)
+func (counter *countingReader) Read(buf []byte) (n int, err error) {
+	n, err = counter.reader.Read(buf)
+	counter.bytesRead += int64(n)
 	return
 }
