@@ -9,8 +9,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      # Expose locally for psql / migration tools during development.
-      - "5432:5432"
+      # Expose on 5433 locally to avoid conflicting with any host Postgres instance.
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U georef"]
       interval: 5s
@@ -34,15 +34,24 @@ services:
       dockerfile: deploy/Dockerfile
       target: server
     environment:
-      DATABASE_URL: postgres://georef:georef@postgres:5432/georef
-      IMAGE_SERVER_URL: http://cantaloupe:8182
-      STORAGE_BACKEND: filesystem
-      STORAGE_PATH: /data/storage
+      DATABASE_URL: postgres://georef:georef@postgres:5432/georef?sslmode=disable
+      STORAGE_ROOT: /data/storage
       BASE_URL: http://localhost:8080
+      ADDR: :8080
+      # MAX_UPLOAD_SIZE: 1073741824
     volumes:
       - storage_data:/data/storage
     ports:
       - "8080:8080"
+    # The server runs migrations via entrypoint.sh before starting.
+    # The healthcheck lets the worker wait until the schema is ready and the
+    # server is accepting connections.
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8080"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,13 +64,15 @@ services:
       dockerfile: deploy/Dockerfile
       target: worker
     environment:
-      DATABASE_URL: postgres://georef:georef@postgres:5432/georef
-      STORAGE_BACKEND: filesystem
-      STORAGE_PATH: /data/storage
+      DATABASE_URL: postgres://georef:georef@postgres:5432/georef?sslmode=disable
+      STORAGE_ROOT: /data/storage
+      POLL_INTERVAL: 5s
+      # VIPS_TILE_WIDTH: 256
+      # VIPS_TILE_HEIGHT: 256
     volumes:
       - storage_data:/data/storage
     depends_on:
-      postgres:
+      server:
         condition: service_healthy
 
 volumes:

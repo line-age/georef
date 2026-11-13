@@ -1,5 +1,7 @@
 # Build output
 bin/
+/server
+/worker
 
 # Generated sqlc output (committed — remove this line if you prefer to commit it)
 # internal/db/
