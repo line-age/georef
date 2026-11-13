@@ -22,10 +22,16 @@ type ServerConfig struct {
 type WorkerConfig struct {
 	DatabaseURL    string
 	StorageRoot    string
-	ImageServerURL string
 	PollInterval   time.Duration
-	MaxRetries     int
+	VipsTileWidth  int
+	VipsTileHeight int
 }
+
+const (
+	errFmtInvalidDuration = "env %s: invalid duration %q: %w"
+	errFmtInvalidInteger  = "env %s: invalid integer %q: %w"
+	errFmtMissingEnvVar   = "required environment variable %s is not set"
+)
 
 // LoadServer reads and validates the server configuration from the environment.
 func LoadServer() (*ServerConfig, error) {
@@ -33,17 +39,17 @@ func LoadServer() (*ServerConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &ServerConfig{
-		DatabaseURL:   mustEnv("DATABASE_URL"),
-		StorageRoot:   mustEnv("STORAGE_ROOT"),
-		BaseURL:       mustEnv("BASE_URL"),
-		Addr:          envOr("ADDR", ":8080"),
+	cfg := &ServerConfig{
+		DatabaseURL:   readEnv("DATABASE_URL"),
+		StorageRoot:   readEnv("STORAGE_ROOT"),
+		BaseURL:       readEnv("BASE_URL"),
+		Addr:          envWithDefault("ADDR", ":8080"),
 		MaxUploadSize: maxUploadSize,
 	}
-	return c, validate(
-		required("DATABASE_URL", c.DatabaseURL),
-		required("STORAGE_ROOT", c.StorageRoot),
-		required("BASE_URL", c.BaseURL),
+	return cfg, checkRequired(
+		requireNonEmpty("DATABASE_URL", cfg.DatabaseURL),
+		requireNonEmpty("STORAGE_ROOT", cfg.StorageRoot),
+		requireNonEmpty("BASE_URL", cfg.BaseURL),
 	)
 }
 
@@ -53,80 +59,87 @@ func LoadWorker() (*WorkerConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	maxRetries, err := envInt("MAX_RETRIES", 3)
+	vipsTileWidth, err := envInt("VIPS_TILE_WIDTH", 256)
+	if err != nil {
+		return nil, err
+	}
+	vipsTileHeight, err := envInt("VIPS_TILE_HEIGHT", 256)
 	if err != nil {
 		return nil, err
 	}
 
-	c := &WorkerConfig{
-		DatabaseURL:    mustEnv("DATABASE_URL"),
-		StorageRoot:    mustEnv("STORAGE_ROOT"),
-		ImageServerURL: mustEnv("IMAGE_SERVER_URL"),
+	cfg := &WorkerConfig{
+		DatabaseURL:    readEnv("DATABASE_URL"),
+		StorageRoot:    readEnv("STORAGE_ROOT"),
 		PollInterval:   pollInterval,
-		MaxRetries:     maxRetries,
+		VipsTileWidth:  vipsTileWidth,
+		VipsTileHeight: vipsTileHeight,
 	}
-	return c, validate(
-		required("DATABASE_URL", c.DatabaseURL),
-		required("STORAGE_ROOT", c.StorageRoot),
-		required("IMAGE_SERVER_URL", c.ImageServerURL),
+	return cfg, checkRequired(
+		requireNonEmpty("DATABASE_URL", cfg.DatabaseURL),
+		requireNonEmpty("STORAGE_ROOT", cfg.StorageRoot),
 	)
 }
 
-func mustEnv(key string) string {
+// readEnv returns the value of an environment variable, or an empty string if unset.
+func readEnv(key string) string {
 	return os.Getenv(key)
 }
 
-func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+// envWithDefault returns the environment variable value, or defaultValue if the variable is unset.
+func envWithDefault(key, defaultValue string) string {
+	if rawValue := os.Getenv(key); rawValue != "" {
+		return rawValue
 	}
-	return def
+	return defaultValue
 }
 
-func envDuration(key string, def time.Duration) (time.Duration, error) {
-	v := os.Getenv(key)
-	if v == "" {
-		return def, nil
+func envDuration(key string, defaultValue time.Duration) (time.Duration, error) {
+	rawValue := os.Getenv(key)
+	if rawValue == "" {
+		return defaultValue, nil
 	}
-	d, err := time.ParseDuration(v)
+	parsedDuration, err := time.ParseDuration(rawValue)
 	if err != nil {
-		return 0, fmt.Errorf("env %s: invalid duration %q: %w", key, v, err)
+		return 0, fmt.Errorf(errFmtInvalidDuration, key, rawValue, err)
 	}
-	return d, nil
+	return parsedDuration, nil
 }
 
-func envInt(key string, def int) (int, error) {
-	v := os.Getenv(key)
-	if v == "" {
-		return def, nil
+func envInt(key string, defaultValue int) (int, error) {
+	rawValue := os.Getenv(key)
+	if rawValue == "" {
+		return defaultValue, nil
 	}
-	n, err := strconv.Atoi(v)
+	parsedValue, err := strconv.Atoi(rawValue)
 	if err != nil {
-		return 0, fmt.Errorf("env %s: invalid integer %q: %w", key, v, err)
+		return 0, fmt.Errorf(errFmtInvalidInteger, key, rawValue, err)
 	}
-	return n, nil
+	return parsedValue, nil
 }
 
-func envInt64(key string, def int64) (int64, error) {
-	v := os.Getenv(key)
-	if v == "" {
-		return def, nil
+func envInt64(key string, defaultValue int64) (int64, error) {
+	rawValue := os.Getenv(key)
+	if rawValue == "" {
+		return defaultValue, nil
 	}
-	n, err := strconv.ParseInt(v, 10, 64)
+	parsedValue, err := strconv.ParseInt(rawValue, 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("env %s: invalid integer %q: %w", key, v, err)
+		return 0, fmt.Errorf(errFmtInvalidInteger, key, rawValue, err)
 	}
-	return n, nil
+	return parsedValue, nil
 }
 
-func required(key, val string) error {
-	if val == "" {
-		return fmt.Errorf("required environment variable %s is not set", key)
+// requireNonEmpty returns an error if the named environment variable has no value.
+func requireNonEmpty(key, value string) error {
+	if value == "" {
+		return fmt.Errorf(errFmtMissingEnvVar, key)
 	}
 	return nil
 }
 
-func validate(errs ...error) error {
+// checkRequired returns the first non-nil error from the given list, or nil if all pass.
+func checkRequired(errs ...error) error {
 	for _, err := range errs {
 		if err != nil {
 			return err
