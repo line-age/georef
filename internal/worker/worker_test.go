@@ -22,23 +22,30 @@ type inMemorySheetAccessor struct {
 	results []*model.Sheet
 }
 
-func (accessor *inMemorySheetAccessor) ProcessNext(ctx context.Context, processor func(context.Context, *model.Sheet) (string, error)) (bool, error) {
-	if len(accessor.queue) == 0 {
-		return false, nil
-	}
-	claimedSheet := accessor.queue[0]
-	accessor.queue = accessor.queue[1:]
+func (accessor *inMemorySheetAccessor) ProcessNext(ctx context.Context, maxRetries int, processor func(context.Context, *model.Sheet) (string, error)) (bool, error) {
+	for i, s := range accessor.queue {
+		if int(s.RetryCount) >= maxRetries {
+			continue
+		}
+		accessor.queue = append(accessor.queue[:i], accessor.queue[i+1:]...)
 
-	pyramidPath, err := processor(ctx, claimedSheet)
-	if err != nil {
-		claimedSheet.Status = model.StatusFailed
-		claimedSheet.ErrorMessage = err.Error()
-	} else {
-		claimedSheet.Status = model.StatusReady
-		claimedSheet.PyramidPath = pyramidPath
+		pyramidPath, err := processor(ctx, s)
+		if err != nil {
+			s.RetryCount++
+			if int(s.RetryCount) >= maxRetries {
+				s.Status = model.StatusFailed
+			} else {
+				s.Status = model.StatusProcessing
+			}
+			s.ErrorMessage = err.Error()
+		} else {
+			s.Status = model.StatusReady
+			s.PyramidPath = pyramidPath
+		}
+		accessor.results = append(accessor.results, s)
+		return true, nil
 	}
-	accessor.results = append(accessor.results, claimedSheet)
-	return true, nil
+	return false, nil
 }
 
 func (accessor *inMemorySheetAccessor) Create(_ context.Context, _ *model.Sheet) error { return nil }
@@ -87,7 +94,7 @@ func TestWorkerRun(t *testing.T) {
 		accessor := &inMemorySheetAccessor{queue: []*model.Sheet{
 			{ID: sheetID, Status: model.StatusProcessing, Title: "Map"},
 		}}
-		testWorker := worker.New(accessor, store, fakePyramidConverter{}, 10*time.Millisecond)
+		testWorker := worker.New(accessor, store, fakePyramidConverter{}, 10*time.Millisecond, 3)
 
 		done := make(chan struct{})
 		go func() {
@@ -133,7 +140,7 @@ func TestWorkerRun(t *testing.T) {
 		accessor := &inMemorySheetAccessor{queue: []*model.Sheet{
 			{ID: sheetID, Status: model.StatusProcessing, Title: "Map"},
 		}}
-		testWorker := worker.New(accessor, store, &forcedErrorConverter{forcedError: expectedConvertErr}, 10*time.Millisecond)
+		testWorker := worker.New(accessor, store, &forcedErrorConverter{forcedError: expectedConvertErr}, 10*time.Millisecond, 1)
 
 		done := make(chan struct{})
 		go func() {
@@ -168,7 +175,7 @@ func TestWorkerRun(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		accessor := &inMemorySheetAccessor{} // empty queue — worker will sleep between polls
 		store := storage.NewLocalStore(t.TempDir())
-		testWorker := worker.New(accessor, store, &forcedErrorConverter{}, 100*time.Millisecond)
+		testWorker := worker.New(accessor, store, &forcedErrorConverter{}, 100*time.Millisecond, 3)
 
 		done := make(chan struct{})
 		go func() {
@@ -181,6 +188,39 @@ func TestWorkerRun(t *testing.T) {
 		case <-done:
 		case <-time.After(2 * time.Second):
 			t.Fatal("Run did not stop within 2s after context cancel")
+		}
+	})
+
+	t.Run("sheet_exhausted_retries_is_skipped", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		store := storage.NewLocalStore(t.TempDir())
+
+		// A sheet that has already hit the retry ceiling — RetryCount == maxRetries.
+		exhaustedSheet := &model.Sheet{
+			ID:         "01JWORKER00000000000000003",
+			Status:     model.StatusFailed,
+			RetryCount: 1,
+		}
+		accessor := &inMemorySheetAccessor{queue: []*model.Sheet{exhaustedSheet}}
+		testWorker := worker.New(accessor, store, fakePyramidConverter{}, 10*time.Millisecond, 1)
+
+		done := make(chan struct{})
+		go func() {
+			testWorker.Run(ctx)
+			close(done)
+		}()
+
+		// Give the worker a few poll intervals then cancel.
+		select {
+		case <-time.After(100 * time.Millisecond):
+		}
+		cancel()
+		<-done
+
+		if len(accessor.results) != 0 {
+			t.Errorf("expected no results for exhausted sheet, got %d", len(accessor.results))
 		}
 	})
 }
