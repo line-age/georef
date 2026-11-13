@@ -47,7 +47,7 @@ func TestLocalStore(t *testing.T) {
 		t.Parallel()
 		content := []byte{0x49, 0x49, 0x2A, 0x00} // TIFF little-endian magic bytes
 
-		if err := store.SavePyramidalTIFF(ctx, id, bytes.NewReader(content)); err != nil {
+		if _, err := store.SavePyramidalTIFF(ctx, id, bytes.NewReader(content)); err != nil {
 			t.Fatalf("SavePyramidalTIFF: %v", err)
 		}
 

@@ -24,7 +24,8 @@ type Store interface {
 
 	// SavePyramidalTIFF streams r to storage as the pyramidal TIFF for the given sheet ID.
 	// The write is atomic: either the whole file lands or nothing does.
-	SavePyramidalTIFF(ctx context.Context, id string, r io.Reader) error
+	// It returns the path at which the file was stored.
+	SavePyramidalTIFF(ctx context.Context, id string, r io.Reader) (string, error)
 
 	// PyramidalTIFFPath returns the filesystem path or S3 URI that the image server
 	// uses to read the pyramidal TIFF directly. The format depends on the backend.
