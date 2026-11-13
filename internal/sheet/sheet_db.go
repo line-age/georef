@@ -13,75 +13,75 @@ import (
 	"github.com/line-age/georef/internal/model"
 )
 
-// db implements Accessor against a connection pool.
-type db struct {
-	q    *dbgen.Queries
-	pool *pgxpool.Pool
+// repository implements Accessor against a Postgres connection pool.
+type repository struct {
+	queries *dbgen.Queries
+	pool    *pgxpool.Pool
 }
 
-// NewDB returns an Accessor backed by the given connection pool.
-func NewDB(pool *pgxpool.Pool) Accessor {
-	return &db{
-		q:    dbgen.New(pool),
-		pool: pool,
+// NewRepository returns an Accessor backed by the given connection pool.
+func NewRepository(pool *pgxpool.Pool) Accessor {
+	return &repository{
+		queries: dbgen.New(pool),
+		pool:    pool,
 	}
 }
 
-func (d *db) Create(ctx context.Context, s *model.Sheet) error {
-	_, err := d.q.CreateSheet(ctx, dbgen.CreateSheetParams{
-		ID:               s.ID,
-		Title:            s.Title,
-		Institution:      pgtype.Text{String: s.Institution, Valid: s.Institution != ""},
-		SourceUrl:        pgtype.Text{String: s.SourceURL, Valid: s.SourceURL != ""},
-		RightsNote:       pgtype.Text{String: s.RightsNote, Valid: s.RightsNote != ""},
-		OriginalChecksum: s.OriginalChecksum,
-		OriginalSize:     s.OriginalSize,
-		OriginalPath:     s.OriginalPath,
-		UploaderGithubID: int8FromPtr(s.UploaderGitHubID),
+func (repository *repository) Create(ctx context.Context, sheet *model.Sheet) error {
+	_, err := repository.queries.CreateSheet(ctx, dbgen.CreateSheetParams{
+		ID:               sheet.ID,
+		Title:            sheet.Title,
+		Institution:      pgtype.Text{String: sheet.Institution, Valid: sheet.Institution != ""},
+		SourceUrl:        pgtype.Text{String: sheet.SourceURL, Valid: sheet.SourceURL != ""},
+		RightsNote:       pgtype.Text{String: sheet.RightsNote, Valid: sheet.RightsNote != ""},
+		OriginalChecksum: sheet.OriginalChecksum,
+		OriginalSize:     sheet.OriginalSize,
+		OriginalPath:     sheet.OriginalPath,
+		UploaderGithubID: toPgNullableInt64(sheet.UploaderGitHubID),
 	})
 	return err
 }
 
-func (d *db) GetByID(ctx context.Context, id string) (*model.Sheet, error) {
-	row, err := d.q.GetSheetByID(ctx, id)
+func (repository *repository) GetByID(ctx context.Context, id string) (*model.Sheet, error) {
+	row, err := repository.queries.GetSheetByID(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound{ID: id}
 	}
 	if err != nil {
 		return nil, err
 	}
-	return toModel(row), nil
+	return toSheetModel(row), nil
 }
 
-func (d *db) List(ctx context.Context, f ListFilter) ([]*model.Sheet, error) {
-	limit := f.Limit
+func (repository *repository) List(ctx context.Context, filter ListFilter) ([]*model.Sheet, error) {
+	limit := filter.Limit
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := d.q.ListSheets(ctx, dbgen.ListSheetsParams{
+	dbRows, err := repository.queries.ListSheets(ctx, dbgen.ListSheetsParams{
 		Limit:  int32(limit),
-		Offset: int32(f.Offset),
-		Status: nullStatus(f.Status),
+		Offset: int32(filter.Offset),
+		Status: toNullableStatus(filter.Status),
 	})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*model.Sheet, len(rows))
-	for i, r := range rows {
-		out[i] = toModel(r)
+	sheets := make([]*model.Sheet, len(dbRows))
+	for i, dbRow := range dbRows {
+		sheets[i] = toSheetModel(dbRow)
 	}
-	return out, nil
+	return sheets, nil
 }
 
-func (d *db) Update(ctx context.Context, id string, fn func(*model.Sheet) error) error {
-	tx, err := d.pool.Begin(ctx)
+func (repository *repository) Update(ctx context.Context, id string, mutate func(*model.Sheet) error) error {
+	transaction, err := repository.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer transaction.Rollback(ctx) //nolint:errcheck
 
-	qtx := d.q.WithTx(tx)
-	row, err := qtx.GetSheetByIDForUpdate(ctx, id)
+	transactionQueries := repository.queries.WithTx(transaction)
+	row, err := transactionQueries.GetSheetByIDForUpdate(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound{ID: id}
 	}
@@ -89,81 +89,119 @@ func (d *db) Update(ctx context.Context, id string, fn func(*model.Sheet) error)
 		return err
 	}
 
-	s := toModel(row)
-	if err := fn(s); err != nil {
+	sheet := toSheetModel(row)
+	if err := mutate(sheet); err != nil {
 		return err
 	}
 
-	_, err = qtx.UpdateSheet(ctx, dbgen.UpdateSheetParams{
-		ID:          s.ID,
-		Title:       s.Title,
-		Institution: pgtype.Text{String: s.Institution, Valid: s.Institution != ""},
-		SourceUrl:   pgtype.Text{String: s.SourceURL, Valid: s.SourceURL != ""},
-		RightsNote:  pgtype.Text{String: s.RightsNote, Valid: s.RightsNote != ""},
+	_, err = transactionQueries.UpdateSheet(ctx, dbgen.UpdateSheetParams{
+		ID:          sheet.ID,
+		Title:       sheet.Title,
+		Institution: pgtype.Text{String: sheet.Institution, Valid: sheet.Institution != ""},
+		SourceUrl:   pgtype.Text{String: sheet.SourceURL, Valid: sheet.SourceURL != ""},
+		RightsNote:  pgtype.Text{String: sheet.RightsNote, Valid: sheet.RightsNote != ""},
 	})
 	if err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return transaction.Commit(ctx)
 }
 
-func (d *db) SoftDelete(ctx context.Context, id string) error {
-	_, err := d.q.SoftDeleteSheet(ctx, id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound{ID: id}
+func (repository *repository) SoftDelete(ctx context.Context, id string) error {
+	_, err := repository.queries.SoftDeleteSheet(ctx, id)
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
 	}
-	return err
+	// ErrNoRows means either the sheet never existed or it was already deleted.
+	// Check which case applies so we can return ErrNotFound only for truly absent IDs.
+	// An already-deleted sheet must stay 410, not flip to 404.
+	_, getErr := repository.queries.GetSheetByID(ctx, id)
+	if getErr == nil {
+		return nil // already deleted; idempotent
+	}
+	return ErrNotFound{ID: id}
 }
 
-func (d *db) ClaimNext(ctx context.Context) (*model.Sheet, error) {
-	row, err := d.q.ClaimNext(ctx)
+func (repository *repository) ProcessNext(ctx context.Context, processor func(ctx context.Context, sheet *model.Sheet) (string, error)) (bool, error) {
+	transaction, err := repository.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer transaction.Rollback(ctx) //nolint:errcheck
+
+	transactionQueries := repository.queries.WithTx(transaction)
+
+	row, err := transactionQueries.ClaimNext(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+		return false, nil
 	}
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	return toModel(row), nil
+
+	sheet := toSheetModel(row)
+	pyramidPath, processorErr := processor(ctx, sheet)
+
+	if processorErr != nil {
+		_, err = transactionQueries.SetSheetFailed(ctx, dbgen.SetSheetFailedParams{
+			ID:           sheet.ID,
+			ErrorMessage: pgtype.Text{String: processorErr.Error(), Valid: true},
+		})
+	} else {
+		_, err = transactionQueries.SetSheetReady(ctx, dbgen.SetSheetReadyParams{
+			ID:          sheet.ID,
+			PyramidPath: pgtype.Text{String: pyramidPath, Valid: true},
+		})
+	}
+	if err != nil {
+		return false, err
+	}
+
+	return true, transaction.Commit(ctx)
 }
 
-func toModel(r dbgen.Sheet) *model.Sheet {
+// toSheetModel converts a database row into the domain Sheet model.
+func toSheetModel(row dbgen.Sheet) *model.Sheet {
 	var deletedAt *time.Time
-	if r.DeletedAt.Valid {
-		t := r.DeletedAt.Time
-		deletedAt = &t
+	if row.DeletedAt.Valid {
+		deletedTime := row.DeletedAt.Time
+		deletedAt = &deletedTime
 	}
 	var uploaderID *int64
-	if r.UploaderGithubID.Valid {
-		id := r.UploaderGithubID.Int64
-		uploaderID = &id
+	if row.UploaderGithubID.Valid {
+		githubID := row.UploaderGithubID.Int64
+		uploaderID = &githubID
 	}
 	return &model.Sheet{
-		ID:               r.ID,
-		Title:            r.Title,
-		Institution:      r.Institution.String,
-		SourceURL:        r.SourceUrl.String,
-		RightsNote:       r.RightsNote.String,
-		Status:           model.Status(r.Status),
-		ErrorMessage:     r.ErrorMessage.String,
-		OriginalChecksum: r.OriginalChecksum,
-		OriginalSize:     r.OriginalSize,
-		OriginalPath:     r.OriginalPath,
-		PyramidPath:      r.PyramidPath.String,
+		ID:               row.ID,
+		Title:            row.Title,
+		Institution:      row.Institution.String,
+		SourceURL:        row.SourceUrl.String,
+		RightsNote:       row.RightsNote.String,
+		Status:           model.Status(row.Status),
+		ErrorMessage:     row.ErrorMessage.String,
+		OriginalChecksum: row.OriginalChecksum,
+		OriginalSize:     row.OriginalSize,
+		OriginalPath:     row.OriginalPath,
+		PyramidPath:      row.PyramidPath.String,
 		UploaderGitHubID: uploaderID,
-		CreatedAt:        r.CreatedAt.Time,
-		UpdatedAt:        r.UpdatedAt.Time,
+		CreatedAt:        row.CreatedAt.Time,
+		UpdatedAt:        row.UpdatedAt.Time,
 		DeletedAt:        deletedAt,
 	}
 }
 
-func nullStatus(s *model.Status) dbgen.NullSheetStatus {
-	if s == nil {
+// toNullableStatus converts an optional model.Status into the pgx nullable type for SQL queries.
+func toNullableStatus(status *model.Status) dbgen.NullSheetStatus {
+	if status == nil {
 		return dbgen.NullSheetStatus{}
 	}
-	return dbgen.NullSheetStatus{SheetStatus: dbgen.SheetStatus(*s), Valid: true}
+	return dbgen.NullSheetStatus{SheetStatus: dbgen.SheetStatus(*status), Valid: true}
 }
 
-func int8FromPtr(id *int64) pgtype.Int8 {
+// toPgNullableInt64 converts an optional int64 pointer into the pgx nullable integer type.
+// pgtype.Int8 is pgx's name for a nullable 64-bit integer — it is not Go's int8.
+func toPgNullableInt64(id *int64) pgtype.Int8 {
 	if id == nil {
 		return pgtype.Int8{}
 	}
