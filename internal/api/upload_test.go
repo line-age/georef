@@ -492,10 +492,18 @@ func assertErrorResponse(t *testing.T, rec *httptest.ResponseRecorder, wantStatu
 // runMigrations runs the actual migration files against the test database,
 // so the test schema stays in sync with production.
 func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	migrationSQL, err := os.ReadFile("../../db/migrations/001_create_sheets.up.sql")
-	if err != nil {
-		return fmt.Errorf("read migration file: %w", err)
+	files := []string{
+		"../../db/migrations/001_create_sheets.up.sql",
+		"../../db/migrations/002_add_retry_count.up.sql",
 	}
-	_, err = pool.Exec(ctx, string(migrationSQL))
-	return err
+	for _, path := range files {
+		sql, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", path, err)
+		}
+		if _, err := pool.Exec(ctx, string(sql)); err != nil {
+			return fmt.Errorf("exec %s: %w", path, err)
+		}
+	}
+	return nil
 }
