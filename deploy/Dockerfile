@@ -4,7 +4,7 @@ FROM golang:1.26-alpine AS build
 # vips-dev + C toolchain needed to link against libvips in the worker binary
 RUN apk add --no-cache vips-dev gcc musl-dev
 
-WORKDIR /var/www/georef/image-service
+WORKDIR /app
 COPY go.mod go.sum* ./
 RUN go mod download
 
@@ -16,16 +16,24 @@ RUN go build -o /out/server ./cmd/server \
 # The front service does not call vips; it proxies IIIF requests to Cantaloupe.
 FROM alpine:3.20 AS server
 
+ENV APP_HOME=/app
+
 RUN apk add --no-cache ca-certificates \
  && mkdir -p /data/storage \
  && chown nobody:nobody /data/storage
 
-WORKDIR /var/www/georef/image-service
+WORKDIR $APP_HOME
+
+# migrate binary runs migrations before the server starts (see entrypoint.sh).
+COPY --from=migrate/migrate:v4.18.3 /migrate /usr/local/bin/migrate
+COPY db/migrations $APP_HOME/migrations
 COPY --from=build /out/server /usr/local/bin/server
+COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 USER nobody
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/server"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 # worker ----------------------------------------------------------------------
 # The worker calls vips to build pyramidal TIFFs from uploaded scans.
@@ -35,7 +43,6 @@ RUN apk add --no-cache vips ca-certificates \
  && mkdir -p /data/storage \
  && chown nobody:nobody /data/storage
 
-WORKDIR /var/www/georef/image-service
 COPY --from=build /out/worker /usr/local/bin/worker
 
 USER nobody
