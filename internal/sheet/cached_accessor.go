@@ -59,6 +59,12 @@ func (cached *CachedAccessor) GetByID(ctx context.Context, id string) (*model.Sh
 	}
 
 	cached.mu.Lock()
+	// Double-check: another goroutine may have populated the cache between our
+	// RUnlock and this Lock. Return its entry rather than overwriting it.
+	if existing, ok := cached.cache[id]; ok && time.Now().Before(existing.expiresAt) {
+		cached.mu.Unlock()
+		return existing.sheet, nil
+	}
 	cached.cache[id] = cachedEntry{sheet: sheetRecord, expiresAt: time.Now().Add(cached.ttl)}
 	cached.evictExpiredLocked()
 	cached.mu.Unlock()

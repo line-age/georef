@@ -12,13 +12,13 @@ import (
 
 // stubAccessor is a minimal Accessor that counts GetByID calls and can inject errors.
 type stubAccessor struct {
-	sheet    *model.Sheet
-	err      error
-	callCount int
+	sheet             *model.Sheet
+	err               error
+	getByIDCallCount  int
 }
 
 func (stub *stubAccessor) GetByID(_ context.Context, _ string) (*model.Sheet, error) {
-	stub.callCount++
+	stub.getByIDCallCount++
 	return stub.sheet, stub.err
 }
 
@@ -48,8 +48,8 @@ func TestCachedAccessor_GetByID_CachesResult(t *testing.T) {
 		}
 	}
 
-	if inner.callCount != 1 {
-		t.Errorf("inner called %d times, want 1 (should be cached)", inner.callCount)
+	if inner.getByIDCallCount != 1 {
+		t.Errorf("inner called %d times, want 1 (should be cached)", inner.getByIDCallCount)
 	}
 }
 
@@ -67,8 +67,8 @@ func TestCachedAccessor_GetByID_RefetchesAfterTTL(t *testing.T) {
 		t.Fatalf("second call: %v", err)
 	}
 
-	if inner.callCount != 2 {
-		t.Errorf("inner called %d times, want 2 (one before expiry, one after)", inner.callCount)
+	if inner.getByIDCallCount != 2 {
+		t.Errorf("inner called %d times, want 2 (one before expiry, one after)", inner.getByIDCallCount)
 	}
 }
 
@@ -84,8 +84,8 @@ func TestCachedAccessor_GetByID_DoesNotCacheErrors(t *testing.T) {
 		}
 	}
 
-	if inner.callCount != 3 {
-		t.Errorf("inner called %d times, want 3 (errors must not be cached)", inner.callCount)
+	if inner.getByIDCallCount != 3 {
+		t.Errorf("inner called %d times, want 3 (errors must not be cached)", inner.getByIDCallCount)
 	}
 }
 
@@ -99,7 +99,7 @@ func TestCachedAccessor_GetByID_ZeroTTLPassesThrough(t *testing.T) {
 		}
 	}
 
-	if inner.callCount != 3 {
-		t.Errorf("inner called %d times, want 3 (zero TTL means no caching)", inner.callCount)
+	if inner.getByIDCallCount != 3 {
+		t.Errorf("inner called %d times, want 3 (zero TTL means no caching)", inner.getByIDCallCount)
 	}
 }
