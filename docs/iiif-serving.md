@@ -43,8 +43,8 @@ internal Cantaloupe image server.
 flowchart TD
     A(["status check passed\nsheet is ready"]) --> B{request type?}
 
-    B -->|info.json| C["build Cantaloupe URL\n/iiif/2/sheets%2F:id%2Fpyramid.tif/info.json"]
-    B -->|tile| D["build Cantaloupe URL\n/iiif/2/sheets%2F:id%2Fpyramid.tif/:region/:size/:rotation/:quality.:format"]
+    B -->|info.json| C["build Cantaloupe URL\n/iiif/2/:id/info.json"]
+    B -->|tile| D["build Cantaloupe URL\n/iiif/2/:id/:region/:size/:rotation/:quality.:format"]
 
     C --> E["fetch info.json\nfrom Cantaloupe"]
     E --> F{Cantaloupe OK?}
@@ -69,12 +69,38 @@ the base URL for requesting tiles. If Cantaloupe's internal address leaked into
 that only exists inside the cluster. The proxy replaces `@id` with the public
 URL before forwarding the response.
 
+### The `/iiif/2/` version prefix
+
+Internal Cantaloupe URLs contain `/iiif/{version}/` where `{version}` is the
+IIIF Image API version. Cantaloupe serves multiple versions at different prefixes:
+`/iiif/2/` for IIIF Image API v2 and `/iiif/3/` for v3. The version used here
+is controlled by the `IIIF_IMAGE_API_VERSION` env var (default `2`).
+
+The compliance level (the `level2` part of the service profile URL
+`http://iiif.io/api/image/2/level2.json`) is controlled separately by
+`IIIF_IMAGE_API_LEVEL` (default `2`). Level 2 means the full set of IIIF Image
+API operations is supported; level 0 is the minimum (original image only).
+
+The public URLs the Go server exposes (`/iiif/{id}/...`) have no version prefix
+— that prefix only appears in the internal Cantaloupe URLs.
+
 ### How the identifier is built
 
-Cantaloupe's filesystem source is configured with prefix `/data/storage/`.
-The sheet's pyramidal TIFF is at `{STORAGE_ROOT}/sheets/{id}/pyramid.tif`.
-Stripping the prefix gives the Cantaloupe identifier: `sheets/:id/pyramid.tif`.
-That identifier is URL-encoded for the IIIF path: `sheets%2F:id%2Fpyramid.tif`.
+Cantaloupe is configured with:
+- `path_prefix = /data/storage/sheets/`
+- `path_suffix = /pyramid.tif`
+
+The identifier sent in the URL is the bare sheet ULID. Cantaloupe prepends the
+prefix and appends the suffix to resolve the file:
+
+```
+identifier  : 01JEMKR9VXYZ0000000000000
+→ file path : /data/storage/sheets/01JEMKR9VXYZ0000000000000/pyramid.tif
+```
+
+Using the bare ULID avoids slashes in the identifier entirely. Jetty (Cantaloupe's
+embedded server) rejects `%2F` in URL path segments as a path-traversal defence,
+so any identifier containing a slash would return 403.
 
 ### Connection reuse
 
@@ -125,6 +151,14 @@ IIIF spec allows embedding older service versions using their own key names.
 
 Allmaps reads this service block to find the IIIF Image API endpoint and uses
 the canvas dimensions when georeferencing the image.
+
+### Canvas IDs are URIs, not URLs
+
+The canvas `id` (`/iiif/{id}/canvas/p1`) is a stable identifier used to link
+annotations to their canvas via the `target` field. IIIF viewers read it but
+never make an HTTP request to it. Nothing serves that path and nothing needs to.
+This is intentional per the IIIF spec: canvas IDs are opaque URIs, not
+dereferenceable endpoints.
 
 ---
 
