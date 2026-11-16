@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -20,6 +22,7 @@ const (
 	logMsgConnectDB      = "connect to database"
 	logMsgServerStarting = "server starting"
 	logMsgServerStopped  = "server stopped"
+	logMsgServerShutdown = "server shutting down"
 )
 
 func main() {
@@ -31,7 +34,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -42,11 +46,43 @@ func main() {
 
 	sheets := sheet.NewRepository(pool)
 	store := storage.NewLocalStore(cfg.StorageRoot)
-	imageProxy := proxy.New()
-	apiHandler := api.New(sheets, store, imageProxy, cfg.BaseURL, cfg.ImageServerURL, cfg.MaxUploadSize)
+	imageProxy := proxy.New(proxy.Config{
+		MaxIdleConns:        cfg.ProxyMaxIdleConns,
+		MaxIdleConnsPerHost: cfg.ProxyMaxIdleConnsPerHost,
+		IdleConnTimeout:     cfg.ProxyIdleConnTimeout,
+		RequestTimeout:      cfg.ProxyRequestTimeout,
+		MaxInfoBodySize:     cfg.ProxyMaxInfoBodySize,
+	})
+	apiHandler := api.New(sheets, store, imageProxy, api.Config{
+		BaseURL:              cfg.BaseURL,
+		ImageServerURL:       cfg.ImageServerURL,
+		IIIFImageAPIVersion:  cfg.IIIFImageAPIVersion,
+		IIIFImageAPILevel:    cfg.IIIFImageAPILevel,
+		RetryAfterSeconds:    cfg.RetryAfterSeconds,
+		MultipartMemoryLimit: cfg.MultipartMemoryLimit,
+		MaxUploadSize:        cfg.MaxUploadSize,
+	})
 
-	slog.Info(logMsgServerStarting, "addr", cfg.Addr)
-	if err := http.ListenAndServe(cfg.Addr, apiHandler.Routes()); err != nil {
+	server := &http.Server{
+		Addr:    cfg.Addr,
+		Handler: apiHandler.Routes(),
+	}
+
+	go func() {
+		slog.Info(logMsgServerStarting, "addr", cfg.Addr)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error(logMsgServerStopped, "err", err)
+			os.Exit(1)
+		}
+	}()
+
+	<-ctx.Done()
+	stop()
+
+	slog.Info(logMsgServerShutdown, "timeout", cfg.ShutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
 		slog.Error(logMsgServerStopped, "err", err)
 		os.Exit(1)
 	}
