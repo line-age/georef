@@ -10,11 +10,12 @@ import (
 // ServerConfig holds all configuration for the HTTP server process.
 // Loaded once at startup via LoadServer; never read from env after that.
 type ServerConfig struct {
-	DatabaseURL   string
-	StorageRoot   string
-	BaseURL       string
-	Addr          string
-	MaxUploadSize int64 // bytes; default 1 GB
+	DatabaseURL    string
+	StorageRoot    string
+	BaseURL        string
+	ImageServerURL string // internal URL of the IIIF image server, not reachable from outside
+	Addr           string
+	MaxUploadSize  int64 // bytes; default 1 GB
 }
 
 // WorkerConfig holds all configuration for the conversion worker process.
@@ -41,16 +42,18 @@ func LoadServer() (*ServerConfig, error) {
 		return nil, err
 	}
 	cfg := &ServerConfig{
-		DatabaseURL:   readEnv("DATABASE_URL"),
-		StorageRoot:   readEnv("STORAGE_ROOT"),
-		BaseURL:       readEnv("BASE_URL"),
-		Addr:          envWithDefault("ADDR", ":8080"),
-		MaxUploadSize: maxUploadSize,
+		DatabaseURL:    readEnv("DATABASE_URL"),
+		StorageRoot:    readEnv("STORAGE_ROOT"),
+		BaseURL:        readEnv("BASE_URL"),
+		ImageServerURL: readEnv("IMAGE_SERVER_URL"),
+		Addr:           envWithDefault("ADDR", ":8080"),
+		MaxUploadSize:  maxUploadSize,
 	}
 	return cfg, checkRequired(
 		requireNonEmpty("DATABASE_URL", cfg.DatabaseURL),
 		requireNonEmpty("STORAGE_ROOT", cfg.StorageRoot),
 		requireNonEmpty("BASE_URL", cfg.BaseURL),
+		requireNonEmpty("IMAGE_SERVER_URL", cfg.ImageServerURL),
 	)
 }
 
