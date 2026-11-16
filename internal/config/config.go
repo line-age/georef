@@ -1,9 +1,11 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -26,6 +28,13 @@ type ServerConfig struct {
 	ShutdownTimeout          time.Duration // graceful shutdown window; default 30s
 	Addr                    string
 	MaxUploadSize           int64 // bytes; default 1 GB
+
+	// Auth — optional. Leave GitHubClientID empty to disable authentication.
+	GitHubClientID     string
+	GitHubClientSecret string
+	AllowedTeams       []string      // parsed from GITHUB_ALLOWED_TEAMS (comma-separated "org/team" pairs)
+	SessionKey         []byte        // parsed from SESSION_KEY (base64); at least 32 bytes when auth is enabled
+	SecureCookies      bool          // set false for local HTTP development; default true
 }
 
 // WorkerConfig holds all configuration for the conversion worker process.
@@ -91,6 +100,11 @@ func LoadServer() (*ServerConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	sessionKey, err := loadSessionKey()
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &ServerConfig{
 		DatabaseURL:              readEnv("DATABASE_URL"),
 		StorageRoot:              readEnv("STORAGE_ROOT"),
@@ -108,6 +122,11 @@ func LoadServer() (*ServerConfig, error) {
 		ShutdownTimeout:          shutdownTimeout,
 		Addr:                     envWithDefault("ADDR", ":8080"),
 		MaxUploadSize:            maxUploadSize,
+		GitHubClientID:           readEnv("GITHUB_CLIENT_ID"),
+		GitHubClientSecret:       readEnv("GITHUB_CLIENT_SECRET"),
+		AllowedTeams:             parseTeams(readEnv("GITHUB_ALLOWED_TEAMS")),
+		SessionKey:               sessionKey,
+		SecureCookies:            envWithDefault("SECURE_COOKIES", "true") != "false",
 	}
 	return cfg, checkRequired(
 		requireNonEmpty("DATABASE_URL", cfg.DatabaseURL),
@@ -215,4 +234,36 @@ func checkRequired(errs ...error) error {
 		}
 	}
 	return nil
+}
+
+// parseTeams splits a comma-separated list of "org/team" pairs, skipping empty entries.
+func parseTeams(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	teams := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			teams = append(teams, trimmed)
+		}
+	}
+	return teams
+}
+
+// loadSessionKey decodes the base64 SESSION_KEY env var.
+// Returns nil when the variable is unset (auth is disabled in that case).
+func loadSessionKey() ([]byte, error) {
+	raw := readEnv("SESSION_KEY")
+	if raw == "" {
+		return nil, nil
+	}
+	key, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, fmt.Errorf("env SESSION_KEY: invalid base64: %w", err)
+	}
+	if len(key) < 32 {
+		return nil, fmt.Errorf("env SESSION_KEY: must be at least 32 bytes, got %d", len(key))
+	}
+	return key, nil
 }

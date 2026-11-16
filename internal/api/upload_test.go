@@ -98,7 +98,7 @@ func TestUploadSheet(t *testing.T) {
 	sheets := sheet.NewRepository(pool)
 	store := storage.NewLocalStore(t.TempDir())
 	const oneGB = 1 << 30
-	handler := api.New(sheets, store, nil, api.Config{BaseURL: "https://maps.example.com", IIIFImageAPIVersion: 2, IIIFImageAPILevel: 2, RetryAfterSeconds: 5, MultipartMemoryLimit: 32 << 20, MaxUploadSize: oneGB})
+	handler := api.New(sheets, store, nil, nil, api.Config{BaseURL: "https://maps.example.com", IIIFImageAPIVersion: 2, IIIFImageAPILevel: 2, RetryAfterSeconds: 5, MultipartMemoryLimit: 32 << 20, MaxUploadSize: oneGB})
 
 	// ── Happy path ────────────────────────────────────────────────────────
 
@@ -371,7 +371,7 @@ func TestUploadSheet(t *testing.T) {
 
 	t.Run("file_too_large_returns_413", func(t *testing.T) {
 		// Create a handler with a tiny limit so we don't need to send gigabytes.
-		limitedHandler := api.New(sheets, store, nil, api.Config{BaseURL: "https://maps.example.com", IIIFImageAPIVersion: 2, IIIFImageAPILevel: 2, RetryAfterSeconds: 5, MultipartMemoryLimit: 32 << 20, MaxUploadSize: 100})
+		limitedHandler := api.New(sheets, store, nil, nil, api.Config{BaseURL: "https://maps.example.com", IIIFImageAPIVersion: 2, IIIFImageAPILevel: 2, RetryAfterSeconds: 5, MultipartMemoryLimit: 32 << 20, MaxUploadSize: 100})
 		// TIFF magic (4 bytes) + 200 bytes of padding = 204 bytes, well over the 100-byte limit.
 		oversizedContent := makeTIFFFile(strings.Repeat("x", 200))
 		rec := doUpload(t, limitedHandler, uploadForm{
@@ -495,6 +495,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	files := []string{
 		"../../db/migrations/001_create_sheets.up.sql",
 		"../../db/migrations/002_add_retry_count.up.sql",
+		"../../db/migrations/003_fix_claimable_idx.up.sql",
 	}
 	for _, path := range files {
 		sql, err := os.ReadFile(path)

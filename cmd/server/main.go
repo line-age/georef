@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/line-age/georef/internal/api"
+	"github.com/line-age/georef/internal/auth"
 	"github.com/line-age/georef/internal/config"
 	"github.com/line-age/georef/internal/proxy"
 	"github.com/line-age/georef/internal/sheet"
@@ -53,7 +54,15 @@ func main() {
 		RequestTimeout:      cfg.ProxyRequestTimeout,
 		MaxInfoBodySize:     cfg.ProxyMaxInfoBodySize,
 	})
-	apiHandler := api.New(sheets, store, imageProxy, api.Config{
+	authenticator := auth.New(auth.Config{
+		GitHubClientID:     cfg.GitHubClientID,
+		GitHubClientSecret: cfg.GitHubClientSecret,
+		AllowedTeams:       cfg.AllowedTeams,
+		SessionKey:         cfg.SessionKey,
+		CallbackURL:        cfg.BaseURL + "/auth/callback",
+		SecureCookies:      cfg.SecureCookies,
+	})
+	apiHandler := api.New(sheets, store, imageProxy, authenticator, api.Config{
 		BaseURL:              cfg.BaseURL,
 		ImageServerURL:       cfg.ImageServerURL,
 		IIIFImageAPIVersion:  cfg.IIIFImageAPIVersion,

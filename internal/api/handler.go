@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/line-age/georef/internal/auth"
 	"github.com/line-age/georef/internal/model"
 	"github.com/line-age/georef/internal/proxy"
 	"github.com/line-age/georef/internal/sheet"
@@ -15,6 +16,7 @@ type Handler struct {
 	sheets               sheet.Accessor
 	store                storage.Store
 	imageProxy           *proxy.Proxy
+	authenticator        *auth.Authenticator
 	baseURL              string
 	imageServerURL       string
 	iiifImageAPIVersion  int
@@ -36,11 +38,16 @@ type Config struct {
 }
 
 // New returns a Handler wired to the given dependencies.
-func New(sheets sheet.Accessor, store storage.Store, imageProxy *proxy.Proxy, cfg Config) *Handler {
+// authenticator may be nil; auth.New with an empty ClientID produces a disabled (passthrough) Authenticator.
+func New(sheets sheet.Accessor, store storage.Store, imageProxy *proxy.Proxy, authenticator *auth.Authenticator, cfg Config) *Handler {
+	if authenticator == nil {
+		authenticator = auth.New(auth.Config{}) // disabled passthrough
+	}
 	return &Handler{
 		sheets:               sheets,
 		store:                store,
 		imageProxy:           imageProxy,
+		authenticator:        authenticator,
 		baseURL:              cfg.BaseURL,
 		imageServerURL:       cfg.ImageServerURL,
 		iiifImageAPIVersion:  cfg.IIIFImageAPIVersion,

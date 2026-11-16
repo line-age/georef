@@ -14,12 +14,20 @@ func (handler *Handler) Routes() http.Handler {
 	router.Use(middleware.Logger)
 	router.Use(middleware.Recoverer)
 
-	// Sheet API
-	router.Post("/sheets", handler.uploadSheet)
+	// Upload form
+	router.Get("/", handler.serveUploadForm)
+
+	// Auth — login, callback, logout
+	router.Get("/auth/login", handler.authenticator.LoginHandler)
+	router.Get("/auth/callback", handler.authenticator.CallbackHandler)
+	router.Post("/auth/logout", handler.authenticator.LogoutHandler)
+
+	// Sheet API — reads are open; writes require a GitHub login in an allowed team.
 	router.Get("/sheets", handler.listSheets)
 	router.Get("/sheets/{id}", handler.getSheet)
-	router.Patch("/sheets/{id}", handler.updateSheet)
-	router.Delete("/sheets/{id}", handler.deleteSheet)
+	router.With(handler.authenticator.RequireWrite).Post("/sheets", handler.uploadSheet)
+	router.With(handler.authenticator.RequireWrite).Patch("/sheets/{id}", handler.updateSheet)
+	router.With(handler.authenticator.RequireWrite).Delete("/sheets/{id}", handler.deleteSheet)
 
 	// IIIF Presentation API
 	router.Get("/iiif/{id}/manifest", handler.serveManifest)
