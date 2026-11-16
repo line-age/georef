@@ -10,12 +10,22 @@ import (
 // ServerConfig holds all configuration for the HTTP server process.
 // Loaded once at startup via LoadServer; never read from env after that.
 type ServerConfig struct {
-	DatabaseURL    string
-	StorageRoot    string
-	BaseURL        string
-	ImageServerURL string // internal URL of the IIIF image server, not reachable from outside
-	Addr           string
-	MaxUploadSize  int64 // bytes; default 1 GB
+	DatabaseURL             string
+	StorageRoot             string
+	BaseURL                 string
+	ImageServerURL          string        // internal URL of the IIIF image server, not reachable from outside
+	IIIFImageAPIVersion     int           // IIIF Image API version served by the image server; default 2
+	IIIFImageAPILevel       int           // IIIF Image API compliance level; default 2
+	RetryAfterSeconds       int           // Retry-After header value sent on 503 responses; default 5
+	MultipartMemoryLimit    int64         // bytes kept in RAM when parsing multipart form; excess spills to disk; default 32 MB
+	ProxyMaxIdleConns        int           // total idle connections in the proxy transport pool; default 100
+	ProxyMaxIdleConnsPerHost int           // per-host idle connections in the proxy transport pool; default 20
+	ProxyIdleConnTimeout     time.Duration // how long an idle proxy connection stays open; default 90s
+	ProxyRequestTimeout      time.Duration // per-request timeout for proxy calls to the image server; default 2m
+	ProxyMaxInfoBodySize     int64         // maximum bytes read from an info.json response body; default 1 MB
+	ShutdownTimeout          time.Duration // graceful shutdown window; default 30s
+	Addr                    string
+	MaxUploadSize           int64 // bytes; default 1 GB
 }
 
 // WorkerConfig holds all configuration for the conversion worker process.
@@ -41,13 +51,63 @@ func LoadServer() (*ServerConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	iiifImageAPIVersion, err := envInt("IIIF_IMAGE_API_VERSION", 2)
+	if err != nil {
+		return nil, err
+	}
+	iiifImageAPILevel, err := envInt("IIIF_IMAGE_API_LEVEL", 2)
+	if err != nil {
+		return nil, err
+	}
+	retryAfterSeconds, err := envInt("RETRY_AFTER_SECONDS", 5)
+	if err != nil {
+		return nil, err
+	}
+	multipartMemoryLimit, err := envInt64("MULTIPART_MEMORY_LIMIT", 32<<20)
+	if err != nil {
+		return nil, err
+	}
+	proxyMaxIdleConns, err := envInt("PROXY_MAX_IDLE_CONNS", 100)
+	if err != nil {
+		return nil, err
+	}
+	proxyMaxIdleConnsPerHost, err := envInt("PROXY_MAX_IDLE_CONNS_PER_HOST", 20)
+	if err != nil {
+		return nil, err
+	}
+	proxyIdleConnTimeout, err := envDuration("PROXY_IDLE_CONN_TIMEOUT", 90*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	proxyRequestTimeout, err := envDuration("PROXY_REQUEST_TIMEOUT", 2*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	proxyMaxInfoBodySize, err := envInt64("PROXY_MAX_INFO_BODY_SIZE", 1<<20)
+	if err != nil {
+		return nil, err
+	}
+	shutdownTimeout, err := envDuration("SHUTDOWN_TIMEOUT", 30*time.Second)
+	if err != nil {
+		return nil, err
+	}
 	cfg := &ServerConfig{
-		DatabaseURL:    readEnv("DATABASE_URL"),
-		StorageRoot:    readEnv("STORAGE_ROOT"),
-		BaseURL:        readEnv("BASE_URL"),
-		ImageServerURL: readEnv("IMAGE_SERVER_URL"),
-		Addr:           envWithDefault("ADDR", ":8080"),
-		MaxUploadSize:  maxUploadSize,
+		DatabaseURL:              readEnv("DATABASE_URL"),
+		StorageRoot:              readEnv("STORAGE_ROOT"),
+		BaseURL:                  readEnv("BASE_URL"),
+		ImageServerURL:           readEnv("IMAGE_SERVER_URL"),
+		IIIFImageAPIVersion:      iiifImageAPIVersion,
+		IIIFImageAPILevel:        iiifImageAPILevel,
+		RetryAfterSeconds:        retryAfterSeconds,
+		MultipartMemoryLimit:     multipartMemoryLimit,
+		ProxyMaxIdleConns:        proxyMaxIdleConns,
+		ProxyMaxIdleConnsPerHost: proxyMaxIdleConnsPerHost,
+		ProxyIdleConnTimeout:     proxyIdleConnTimeout,
+		ProxyRequestTimeout:      proxyRequestTimeout,
+		ProxyMaxInfoBodySize:     proxyMaxInfoBodySize,
+		ShutdownTimeout:          shutdownTimeout,
+		Addr:                     envWithDefault("ADDR", ":8080"),
+		MaxUploadSize:            maxUploadSize,
 	}
 	return cfg, checkRequired(
 		requireNonEmpty("DATABASE_URL", cfg.DatabaseURL),

@@ -14,10 +14,6 @@ import (
 )
 
 const (
-	// retryAfterSeconds is the Retry-After value sent when a sheet is still processing.
-	// A rough estimate of minimum conversion time for a typical scan.
-	retryAfterSeconds = "5"
-
 	msgSheetProcessing = "sheet is being processed; retry after a few seconds"
 	msgSheetFailed     = "sheet conversion failed"
 
@@ -35,8 +31,8 @@ const (
 func (handler *Handler) serveManifest(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	s := handler.resolveReadySheet(w, r, id)
-	if s == nil {
+	readySheet := handler.resolveReadySheet(w, r, id)
+	if readySheet == nil {
 		return
 	}
 
@@ -48,7 +44,7 @@ func (handler *Handler) serveManifest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	manifest := iiif.Build(s, handler.baseURL, width, height)
+	manifest := iiif.Build(readySheet, handler.baseURL, handler.iiifImageAPIVersion, handler.iiifImageAPILevel, width, height)
 
 	w.Header().Set("Content-Type", manifestContentType)
 	w.WriteHeader(http.StatusOK)
@@ -62,8 +58,8 @@ func (handler *Handler) serveManifest(w http.ResponseWriter, r *http.Request) {
 func (handler *Handler) serveInfoJSON(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	s := handler.resolveReadySheet(w, r, id)
-	if s == nil {
+	readySheet := handler.resolveReadySheet(w, r, id)
+	if readySheet == nil {
 		return
 	}
 
@@ -81,8 +77,8 @@ func (handler *Handler) serveInfoJSON(w http.ResponseWriter, r *http.Request) {
 func (handler *Handler) serveTile(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	s := handler.resolveReadySheet(w, r, id)
-	if s == nil {
+	readySheet := handler.resolveReadySheet(w, r, id)
+	if readySheet == nil {
 		return
 	}
 
@@ -124,7 +120,7 @@ func (handler *Handler) resolveReadySheet(w http.ResponseWriter, r *http.Request
 		writeGone(w, msgSheetGone)
 		return nil
 	case model.StatusProcessing:
-		w.Header().Set("Retry-After", retryAfterSeconds)
+		w.Header().Set("Retry-After", handler.retryAfterSeconds)
 		writeError(w, http.StatusServiceUnavailable, msgSheetProcessing)
 		return nil
 	case model.StatusFailed:

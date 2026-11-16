@@ -2,7 +2,11 @@
 // It has no I/O dependencies; callers supply all required data.
 package iiif
 
-import "github.com/line-age/georef/internal/model"
+import (
+	"fmt"
+
+	"github.com/line-age/georef/internal/model"
+)
 
 // LanguageMap is the IIIF v3 language-keyed string map, e.g. {"none": ["My Title"]}.
 type LanguageMap map[string][]string
@@ -62,10 +66,15 @@ type ImageService struct {
 
 // Build constructs a IIIF Presentation v3 manifest for the given sheet.
 // publicBaseURL is the external root (e.g. "https://maps.example.com").
+// imageAPIVersion is the IIIF Image API version (e.g. 2).
+// imageAPILevel is the IIIF Image API compliance level (e.g. 2).
 // width and height are the pixel dimensions of the sheet image, obtained from info.json.
-func Build(sheet *model.Sheet, publicBaseURL string, width, height int) *Manifest {
+func Build(sheet *model.Sheet, publicBaseURL string, imageAPIVersion, imageAPILevel, width, height int) *Manifest {
 	iiifBase := publicBaseURL + "/iiif/" + sheet.ID
 	canvasID := iiifBase + "/canvas/p1"
+
+	serviceType := fmt.Sprintf("ImageService%d", imageAPIVersion)
+	serviceProfile := fmt.Sprintf("http://iiif.io/api/image/%d/level%d.json", imageAPIVersion, imageAPILevel)
 
 	return &Manifest{
 		Context: "http://iiif.io/api/presentation/3/context.json",
@@ -96,8 +105,8 @@ func Build(sheet *model.Sheet, publicBaseURL string, width, height int) *Manifes
 									Service: []ImageService{
 										{
 											ID:      iiifBase,
-											Type:    "ImageService2",
-											Profile: "http://iiif.io/api/image/2/level2.json",
+											Type:    serviceType,
+											Profile: serviceProfile,
 										},
 									},
 								},

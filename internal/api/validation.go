@@ -34,8 +34,8 @@ type uploadRequest struct {
 // Returns an error if the form is malformed or the file field is missing.
 // If the body exceeds the size limit set by MaxBytesReader, the error wraps
 // *http.MaxBytesError so the caller can return 413.
-func parseUploadRequest(request *http.Request) (*uploadRequest, error) {
-	if err := request.ParseMultipartForm(multipartMemoryLimit); err != nil {
+func parseUploadRequest(request *http.Request, memoryLimit int64) (*uploadRequest, error) {
+	if err := request.ParseMultipartForm(memoryLimit); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			return nil, err // preserve type; caller checks with errors.As
@@ -64,8 +64,11 @@ func (form *uploadRequest) validate() error {
 	}
 
 	contentTypeProbeBytes := make([]byte, 512)
-	bytesRead, _ := form.File.Read(contentTypeProbeBytes)
+	bytesRead, readErr := form.File.Read(contentTypeProbeBytes)
 	if _, err := form.File.Seek(0, io.SeekStart); err != nil {
+		return errors.New(msgInvalidForm)
+	}
+	if readErr != nil && readErr != io.EOF {
 		return errors.New(msgInvalidForm)
 	}
 

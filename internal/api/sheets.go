@@ -80,8 +80,8 @@ func (handler *Handler) listSheets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	responses := make([]sheetResponse, len(sheets))
-	for i, s := range sheets {
-		responses[i] = handler.toSheetResponse(s)
+	for idx, sheetRecord := range sheets {
+		responses[idx] = handler.toSheetResponse(sheetRecord)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{

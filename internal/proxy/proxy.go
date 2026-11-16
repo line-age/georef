@@ -12,14 +12,14 @@ import (
 	"time"
 )
 
-const (
-	maxIdleConns        = 100
-	maxIdleConnsPerHost = 20
-	idleConnTimeout     = 90 * time.Second
-
-	// Tiles can be large and slow connections are common; don't time out short.
-	defaultTimeout = 2 * time.Minute
-)
+// Config holds tuneable parameters for the Proxy transport.
+type Config struct {
+	MaxIdleConns        int
+	MaxIdleConnsPerHost int
+	IdleConnTimeout     time.Duration
+	RequestTimeout      time.Duration
+	MaxInfoBodySize     int64 // maximum bytes read from an info.json response body
+}
 
 // passedHeaders are upstream response headers forwarded to the client unchanged.
 var passedHeaders = []string{
@@ -29,21 +29,23 @@ var passedHeaders = []string{
 // Proxy is a streaming reverse proxy to the internal IIIF image server.
 // A single Proxy is safe for concurrent use.
 type Proxy struct {
-	client *http.Client
+	client          *http.Client
+	maxInfoBodySize int64
 }
 
-// New returns a Proxy backed by a connection-pooled HTTP client.
-func New() *Proxy {
+// New returns a Proxy backed by a connection-pooled HTTP client configured by cfg.
+func New(cfg Config) *Proxy {
 	transport := &http.Transport{
-		MaxIdleConns:        maxIdleConns,
-		MaxIdleConnsPerHost: maxIdleConnsPerHost,
-		IdleConnTimeout:     idleConnTimeout,
+		MaxIdleConns:        cfg.MaxIdleConns,
+		MaxIdleConnsPerHost: cfg.MaxIdleConnsPerHost,
+		IdleConnTimeout:     cfg.IdleConnTimeout,
 	}
 	return &Proxy{
 		client: &http.Client{
 			Transport: transport,
-			Timeout:   defaultTimeout,
+			Timeout:   cfg.RequestTimeout,
 		},
+		maxInfoBodySize: cfg.MaxInfoBodySize,
 	}
 }
 
@@ -67,7 +69,7 @@ func (proxy *Proxy) ServeInfoJSON(w http.ResponseWriter, r *http.Request, upstre
 	}
 
 	var doc map[string]any
-	if err := json.NewDecoder(upstreamResp.Body).Decode(&doc); err != nil {
+	if err := json.NewDecoder(io.LimitReader(upstreamResp.Body, proxy.maxInfoBodySize)).Decode(&doc); err != nil {
 		return err
 	}
 	doc["@id"] = publicIIIFBaseURL
@@ -97,8 +99,12 @@ func (proxy *Proxy) ServeTile(w http.ResponseWriter, r *http.Request, upstreamUR
 	}
 	defer upstreamResp.Body.Close()
 
+	if upstreamResp.StatusCode != http.StatusOK {
+		return fmt.Errorf("image server returned %d", upstreamResp.StatusCode)
+	}
+
 	copyResponseHeaders(w, upstreamResp)
-	w.WriteHeader(upstreamResp.StatusCode)
+	w.WriteHeader(http.StatusOK)
 	io.Copy(w, upstreamResp.Body) //nolint:errcheck
 	return nil
 }
@@ -125,7 +131,7 @@ func (proxy *Proxy) FetchDimensions(ctx context.Context, infoURL string) (width,
 		Width  int `json:"width"`
 		Height int `json:"height"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, proxy.maxInfoBodySize)).Decode(&info); err != nil {
 		return 0, 0, err
 	}
 	return info.Width, info.Height, nil

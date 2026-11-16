@@ -15,8 +15,6 @@ import (
 )
 
 const (
-	multipartMemoryLimit = 32 << 20 // bytes kept in memory when parsing multipart form; excess spills to disk
-
 	msgStoreFailed  = "failed to store scan"
 	msgRecordFailed = "failed to create sheet record"
 
@@ -36,7 +34,7 @@ type uploadResponse struct {
 func (handler *Handler) uploadSheet(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, handler.maxUploadSize)
 
-	uploadFormData, err := parseUploadRequest(r)
+	uploadFormData, err := parseUploadRequest(r, handler.multipartMemoryLimit)
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
