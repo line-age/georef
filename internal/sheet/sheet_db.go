@@ -122,7 +122,10 @@ func (repository *repository) SoftDelete(ctx context.Context, id string) error {
 	if getErr == nil {
 		return nil // already deleted; idempotent
 	}
-	return ErrNotFound{ID: id}
+	if errors.Is(getErr, pgx.ErrNoRows) {
+		return ErrNotFound{ID: id}
+	}
+	return getErr // propagate unexpected errors (network, pool timeout, etc.)
 }
 
 func (repository *repository) ProcessNext(ctx context.Context, maxRetries int, processor func(ctx context.Context, sheet *model.Sheet) (string, error)) (bool, error) {

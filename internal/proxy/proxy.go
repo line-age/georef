@@ -21,6 +21,14 @@ type Config struct {
 	MaxInfoBodySize     int64 // maximum bytes read from an info.json response body
 }
 
+// ErrStreamInterrupted is returned by ServeTile when the 200 OK response headers
+// have already been sent to the client but the tile body stream was cut short.
+// Callers must not write another response after receiving this error.
+type ErrStreamInterrupted struct{ Cause error }
+
+func (e ErrStreamInterrupted) Error() string { return "stream interrupted: " + e.Cause.Error() }
+func (e ErrStreamInterrupted) Unwrap() error { return e.Cause }
+
 // passedHeaders are upstream response headers forwarded to the client unchanged.
 var passedHeaders = []string{
 	"Content-Type", "Cache-Control", "ETag", "Last-Modified", "Expires",
@@ -105,7 +113,9 @@ func (imageProxy *Proxy) ServeTile(w http.ResponseWriter, r *http.Request, upstr
 
 	copyResponseHeaders(w, upstreamResp)
 	w.WriteHeader(http.StatusOK)
-	io.Copy(w, upstreamResp.Body) //nolint:errcheck
+	if _, err := io.Copy(w, upstreamResp.Body); err != nil {
+		return ErrStreamInterrupted{Cause: err}
+	}
 	return nil
 }
 

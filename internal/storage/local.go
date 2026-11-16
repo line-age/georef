@@ -19,7 +19,10 @@ func NewLocalStore(root string) Store {
 
 func (store *localStore) SaveOriginalScan(_ context.Context, id string, reader io.Reader) (string, error) {
 	filePath := store.scanPath(id)
-	return filePath, atomicWrite(filePath, reader)
+	if err := atomicWrite(filePath, reader); err != nil {
+		return "", err
+	}
+	return "sheets/" + id + "/original", nil
 }
 
 func (store *localStore) OpenOriginalScan(_ context.Context, id string) (io.ReadCloser, error) {
@@ -36,7 +39,10 @@ func (store *localStore) OriginalScanPath(_ context.Context, id string) (string,
 
 func (store *localStore) SavePyramidalTIFF(_ context.Context, id string, reader io.Reader) (string, error) {
 	filePath := store.tiffPath(id)
-	return filePath, atomicWrite(filePath, reader)
+	if err := atomicWrite(filePath, reader); err != nil {
+		return "", err
+	}
+	return "sheets/" + id + "/pyramid.tif", nil
 }
 
 func (store *localStore) PyramidalTIFFPath(_ context.Context, id string) (string, error) {
@@ -81,14 +87,10 @@ func atomicWrite(destPath string, reader io.Reader) (retErr error) {
 		return err
 	}
 
-	if err := os.Rename(tempPath, destPath); err != nil {
+	// chmod before rename so the file is world-readable the instant it appears at destPath;
+	// otherwise there is a window where Cantaloupe (running as a different UID) cannot open it.
+	if err := os.Chmod(tempPath, 0o644); err != nil {
 		return err
 	}
-	// os.CreateTemp creates files as 0600; make them world-readable so other
-	// processes in the cluster (e.g. the image server) can open them.
-	if err := os.Chmod(destPath, 0o644); err != nil {
-		os.Remove(destPath) //nolint:errcheck
-		return err
-	}
-	return nil
+	return os.Rename(tempPath, destPath)
 }

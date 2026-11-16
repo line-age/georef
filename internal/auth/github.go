@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/sessions"
 	"golang.org/x/oauth2"
@@ -18,13 +19,13 @@ const (
 	sessionName          = "georef"
 	sessionKeyAuth       = "authenticated"
 	sessionKeyOAuthState = "oauth_state"
-	sessionMaxAge        = 86400 * 7 // 7 days
+	defaultSessionMaxAge = 86400 * 7 // 7 days
 
-	msgUnauthorized       = "authentication required"
-	msgForbidden          = "not a member of an allowed team"
-	msgStateMismatch      = "invalid oauth state"
+	msgUnauthorized        = "authentication required"
+	msgForbidden           = "not a member of an allowed team"
+	msgStateMismatch       = "invalid oauth state"
 	msgTokenExchangeFailed = "token exchange failed"
-	msgTeamCheckFailed    = "team membership check failed"
+	msgTeamCheckFailed     = "team membership check failed"
 
 	githubTeamsURL = "https://api.github.com/user/teams?per_page=100"
 )
@@ -37,6 +38,7 @@ type Config struct {
 	SessionKey         []byte   // signing key for session cookies; at least 32 bytes
 	CallbackURL        string   // e.g. "https://maps.example.com/auth/callback"
 	SecureCookies      bool     // set false only in local HTTP development
+	SessionMaxAge      int      // session lifetime in seconds; 0 means use defaultSessionMaxAge (7 days)
 }
 
 // Authenticator handles the GitHub OAuth2 flow, session cookies, and the write-auth middleware.
@@ -83,6 +85,11 @@ func New(cfg Config) *Authenticator {
 		Scopes:       []string{"read:org"},
 		Endpoint:     github.Endpoint,
 		RedirectURL:  cfg.CallbackURL,
+	}
+
+	sessionMaxAge := cfg.SessionMaxAge
+	if sessionMaxAge <= 0 {
+		sessionMaxAge = defaultSessionMaxAge
 	}
 
 	cookieStore := sessions.NewCookieStore(cfg.SessionKey)
@@ -135,7 +142,13 @@ func (authenticator *Authenticator) CallbackHandler(w http.ResponseWriter, r *ht
 		http.Error(w, msgStateMismatch, http.StatusBadRequest)
 		return
 	}
+
+	// Consume the state immediately regardless of outcome to prevent replay attacks.
 	delete(session.Values, sessionKeyOAuthState)
+	if err := session.Save(r, w); err != nil {
+		http.Error(w, "session error", http.StatusInternalServerError)
+		return
+	}
 
 	token, err := authenticator.oauthConfig.Exchange(r.Context(), r.URL.Query().Get("code"))
 	if err != nil {
@@ -203,17 +216,54 @@ type httpTeamClient struct {
 
 func (client *httpTeamClient) listUserTeams(ctx context.Context, token *oauth2.Token) ([]githubTeam, error) {
 	httpClient := client.oauthConfig.Client(ctx, token)
-	resp, err := httpClient.Get(githubTeamsURL)
+
+	var allTeams []githubTeam
+	nextURL := githubTeamsURL
+	for nextURL != "" {
+		page, next, err := client.fetchTeamsPage(ctx, httpClient, nextURL)
+		if err != nil {
+			return nil, err
+		}
+		allTeams = append(allTeams, page...)
+		nextURL = next
+	}
+	return allTeams, nil
+}
+
+func (client *httpTeamClient) fetchTeamsPage(ctx context.Context, httpClient *http.Client, pageURL string) ([]githubTeam, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 
 	var teams []githubTeam
 	if err := json.NewDecoder(resp.Body).Decode(&teams); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return teams, nil
+	return teams, parseLinkNext(resp.Header.Get("Link")), nil
+}
+
+// parseLinkNext extracts the "next" URL from a GitHub API Link header.
+// GitHub format: Link: <https://...>; rel="next", <https://...>; rel="last"
+func parseLinkNext(linkHeader string) string {
+	for _, part := range strings.Split(linkHeader, ",") {
+		part = strings.TrimSpace(part)
+		sections := strings.SplitN(part, ";", 2)
+		if len(sections) != 2 {
+			continue
+		}
+		urlPart := strings.TrimSpace(sections[0])
+		relPart := strings.TrimSpace(sections[1])
+		if relPart == `rel="next"` && len(urlPart) > 2 && urlPart[0] == '<' && urlPart[len(urlPart)-1] == '>' {
+			return urlPart[1 : len(urlPart)-1]
+		}
+	}
+	return ""
 }
 
 // randomState generates a cryptographically random state string for the OAuth2 flow.
@@ -225,7 +275,8 @@ func randomState() string {
 
 // writeAuthError writes a JSON error response with the given status and message.
 func writeAuthError(w http.ResponseWriter, status int, msg string) {
+	body, _ := json.Marshal(map[string]string{"error": msg})
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	w.Write([]byte(`{"error":"` + msg + `"}`)) //nolint:errcheck
+	w.Write(body) //nolint:errcheck
 }

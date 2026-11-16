@@ -2,16 +2,11 @@ package api_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/line-age/georef/internal/api"
 	"github.com/line-age/georef/internal/model"
@@ -42,47 +37,7 @@ type sheetListResponse struct {
 }
 
 func TestSheetCRUD(t *testing.T) {
-	ctx := context.Background()
-
-	ctr, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "postgres:16-alpine",
-			ExposedPorts: []string{"5432/tcp"},
-			Env: map[string]string{
-				"POSTGRES_DB":       "georef_test",
-				"POSTGRES_USER":     "georef",
-				"POSTGRES_PASSWORD": "georef",
-			},
-			WaitingFor: wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(30 * time.Second),
-		},
-		Started: true,
-	})
-	if err != nil {
-		t.Fatalf("start container: %v", err)
-	}
-	t.Cleanup(func() { ctr.Terminate(ctx) }) //nolint:errcheck
-
-	host, err := ctr.Host(ctx)
-	if err != nil {
-		t.Fatalf("container host: %v", err)
-	}
-	port, err := ctr.MappedPort(ctx, "5432")
-	if err != nil {
-		t.Fatalf("container port: %v", err)
-	}
-
-	dsn := "postgres://georef:georef@" + host + ":" + port.Port() + "/georef_test"
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	t.Cleanup(pool.Close)
-
-	if err := runMigrations(ctx, pool); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	pool := startTestDB(t)
 
 	sheets := sheet.NewRepository(pool)
 	store := storage.NewLocalStore(t.TempDir())

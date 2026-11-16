@@ -62,18 +62,14 @@ func (worker *Worker) Run(ctx context.Context) {
 			slog.ErrorContext(ctx, logMsgProcessNextFailed, "err", err)
 		}
 
-		// Always sleep between iterations. When the queue is empty we wait the
-		// full poll interval; when a job was processed we still yield briefly so
-		// a permanently-broken sheet (re-enqueued as 'failed' every cycle) does
-		// not spin the loop at full speed.
-		sleep := worker.pollInterval
-		if found {
-			sleep = time.Second
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(sleep):
+		// When a job was found, re-check the queue immediately — there may be more.
+		// Sleep only when the queue is empty, so the loop does not busy-spin.
+		if !found {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(worker.pollInterval):
+			}
 		}
 	}
 }

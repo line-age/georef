@@ -1,24 +1,12 @@
 package auth_test
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"golang.org/x/oauth2"
-
 	"github.com/line-age/georef/internal/auth"
 )
-
-// stubTeamClient is an in-memory replacement for the real GitHub API client.
-type stubTeamClient struct {
-	teams []string // "org/team" pairs the stubbed user belongs to
-}
-
-func (stubClient *stubTeamClient) ListUserTeams(_ context.Context, _ *oauth2.Token) ([]string, error) {
-	return stubClient.teams, nil
-}
 
 func TestRequireWrite_DisabledAuth_PassesThrough(t *testing.T) {
 	authenticator := auth.New(auth.Config{}) // disabled: no ClientID

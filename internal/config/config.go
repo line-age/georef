@@ -35,6 +35,7 @@ type ServerConfig struct {
 	AllowedTeams       []string      // parsed from GITHUB_ALLOWED_TEAMS (comma-separated "org/team" pairs)
 	SessionKey         []byte        // parsed from SESSION_KEY (base64); at least 32 bytes when auth is enabled
 	SecureCookies      bool          // set false for local HTTP development; default true
+	SessionMaxAge      int           // session lifetime in seconds; default 604800 (7 days)
 }
 
 // WorkerConfig holds all configuration for the conversion worker process.
@@ -104,6 +105,10 @@ func LoadServer() (*ServerConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	sessionMaxAge, err := envInt("SESSION_MAX_AGE", 86400*7)
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &ServerConfig{
 		DatabaseURL:              readEnv("DATABASE_URL"),
@@ -127,6 +132,7 @@ func LoadServer() (*ServerConfig, error) {
 		AllowedTeams:             parseTeams(readEnv("GITHUB_ALLOWED_TEAMS")),
 		SessionKey:               sessionKey,
 		SecureCookies:            envWithDefault("SECURE_COOKIES", "true") != "false",
+		SessionMaxAge:            sessionMaxAge,
 	}
 	return cfg, checkRequired(
 		requireNonEmpty("DATABASE_URL", cfg.DatabaseURL),

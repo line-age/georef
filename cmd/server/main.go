@@ -61,6 +61,7 @@ func main() {
 		SessionKey:         cfg.SessionKey,
 		CallbackURL:        cfg.BaseURL + "/auth/callback",
 		SecureCookies:      cfg.SecureCookies,
+		SessionMaxAge:      cfg.SessionMaxAge,
 	})
 	apiHandler := api.New(sheets, store, imageProxy, authenticator, api.Config{
 		BaseURL:              cfg.BaseURL,

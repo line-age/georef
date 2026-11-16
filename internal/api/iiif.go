@@ -10,6 +10,7 @@ import (
 
 	"github.com/line-age/georef/internal/iiif"
 	"github.com/line-age/georef/internal/model"
+	"github.com/line-age/georef/internal/proxy"
 	"github.com/line-age/georef/internal/sheet"
 )
 
@@ -87,7 +88,11 @@ func (handler *Handler) serveTile(w http.ResponseWriter, r *http.Request) {
 
 	if err := handler.imageProxy.ServeTile(w, r, upstreamURL); err != nil {
 		slog.ErrorContext(r.Context(), logMsgProxyTileFailed, "id", id, "err", err)
-		writeError(w, http.StatusBadGateway, "image server unavailable")
+		var streamErr proxy.ErrStreamInterrupted
+		if !errors.As(err, &streamErr) {
+			writeError(w, http.StatusBadGateway, "image server unavailable")
+		}
+		// When headers are already committed (ErrStreamInterrupted), only logging is possible.
 	}
 }
 
