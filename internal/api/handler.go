@@ -1,7 +1,7 @@
 package api
 
 import (
-	"net/url"
+	"fmt"
 	"time"
 
 	"github.com/line-age/georef/internal/model"
@@ -12,26 +12,42 @@ import (
 
 // Handler holds the shared dependencies for all HTTP handlers.
 type Handler struct {
-	sheets         sheet.Accessor
-	store          storage.Store
-	imageProxy     *proxy.Proxy
-	baseURL        string
-	imageServerURL string
-	maxUploadSize  int64
+	sheets               sheet.Accessor
+	store                storage.Store
+	imageProxy           *proxy.Proxy
+	baseURL              string
+	imageServerURL       string
+	iiifImageAPIVersion  int
+	iiifImageAPILevel    int
+	retryAfterSeconds    string
+	multipartMemoryLimit int64
+	maxUploadSize        int64
+}
+
+// Config holds the tunable parameters for a Handler.
+type Config struct {
+	BaseURL              string
+	ImageServerURL       string
+	IIIFImageAPIVersion  int
+	IIIFImageAPILevel    int
+	RetryAfterSeconds    int
+	MultipartMemoryLimit int64
+	MaxUploadSize        int64
 }
 
 // New returns a Handler wired to the given dependencies.
-// baseURL is the public root URL (e.g. "https://maps.example.com"), no trailing slash.
-// imageServerURL is the internal IIIF image server URL, not reachable from outside.
-// maxUploadSize is the maximum accepted request body in bytes.
-func New(sheets sheet.Accessor, store storage.Store, imageProxy *proxy.Proxy, baseURL, imageServerURL string, maxUploadSize int64) *Handler {
+func New(sheets sheet.Accessor, store storage.Store, imageProxy *proxy.Proxy, cfg Config) *Handler {
 	return &Handler{
-		sheets:         sheets,
-		store:          store,
-		imageProxy:     imageProxy,
-		baseURL:        baseURL,
-		imageServerURL: imageServerURL,
-		maxUploadSize:  maxUploadSize,
+		sheets:               sheets,
+		store:                store,
+		imageProxy:           imageProxy,
+		baseURL:              cfg.BaseURL,
+		imageServerURL:       cfg.ImageServerURL,
+		iiifImageAPIVersion:  cfg.IIIFImageAPIVersion,
+		iiifImageAPILevel:    cfg.IIIFImageAPILevel,
+		retryAfterSeconds:    fmt.Sprintf("%d", cfg.RetryAfterSeconds),
+		multipartMemoryLimit: cfg.MultipartMemoryLimit,
+		maxUploadSize:        cfg.MaxUploadSize,
 	}
 }
 
@@ -77,14 +93,15 @@ func (handler *Handler) toSheetResponse(s *model.Sheet) sheetResponse {
 }
 
 // imageInfoURL returns the info.json URL on the image server for a given sheet ID.
-// Cantaloupe's FilesystemSource maps the identifier sheets/{id}/pyramid.tif to
-// the file at {STORAGE_ROOT}/sheets/{id}/pyramid.tif.
+// The identifier is the bare ULID. Cantaloupe is configured with
+// path_prefix=/data/storage/sheets/ and path_suffix=/pyramid.tif, so it resolves
+// the identifier to /data/storage/sheets/{id}/pyramid.tif with no slash encoding needed.
 func (handler *Handler) imageInfoURL(sheetID string) string {
-	return handler.imageServerURL + "/iiif/2/" + url.PathEscape("sheets/"+sheetID+"/pyramid.tif") + "/info.json"
+	return fmt.Sprintf("%s/iiif/%d/%s/info.json", handler.imageServerURL, handler.iiifImageAPIVersion, sheetID)
 }
 
 // imageTileURL returns the tile URL on the image server for a given sheet ID and tile suffix.
 // suffix is the IIIF Image API path after the identifier, e.g. "full/max/0/default.jpg".
 func (handler *Handler) imageTileURL(sheetID, suffix string) string {
-	return handler.imageServerURL + "/iiif/2/" + url.PathEscape("sheets/"+sheetID+"/pyramid.tif") + "/" + suffix
+	return fmt.Sprintf("%s/iiif/%d/%s/%s", handler.imageServerURL, handler.iiifImageAPIVersion, sheetID, suffix)
 }

@@ -81,5 +81,14 @@ func atomicWrite(destPath string, reader io.Reader) (retErr error) {
 		return err
 	}
 
-	return os.Rename(tempPath, destPath)
+	if err := os.Rename(tempPath, destPath); err != nil {
+		return err
+	}
+	// os.CreateTemp creates files as 0600; make them world-readable so other
+	// processes in the cluster (e.g. the image server) can open them.
+	if err := os.Chmod(destPath, 0o644); err != nil {
+		os.Remove(destPath) //nolint:errcheck
+		return err
+	}
+	return nil
 }

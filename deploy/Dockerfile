@@ -39,7 +39,7 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 # The worker calls vips to build pyramidal TIFFs from uploaded scans.
 FROM alpine:3.20 AS worker
 
-RUN apk add --no-cache vips ca-certificates \
+RUN apk add --no-cache vips vips-tools ca-certificates \
  && mkdir -p /data/storage \
  && chown nobody:nobody /data/storage
 

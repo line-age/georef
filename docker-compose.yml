@@ -24,7 +24,11 @@ services:
     image: uclalibrary/cantaloupe:5.0.7-2
     environment:
       CANTALOUPE_SOURCE_STATIC: FilesystemSource
-      CANTALOUPE_FILESYSTEMSOURCE_BASICLOOKUPSTRATEGY_PATH_PREFIX: /data/storage/
+      # prefix + sheetID + suffix = /data/storage/sheets/{id}/pyramid.tif
+      # The identifier is the bare ULID with no slashes, so Jetty's
+      # %2F path-traversal defence never applies.
+      CANTALOUPE_FILESYSTEMSOURCE_BASICLOOKUPSTRATEGY_PATH_PREFIX: /data/storage/sheets/
+      CANTALOUPE_FILESYSTEMSOURCE_BASICLOOKUPSTRATEGY_PATH_SUFFIX: /pyramid.tif
     volumes:
       - storage_data:/data/storage:ro
 
