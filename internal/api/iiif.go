@@ -108,7 +108,7 @@ func (handler *Handler) serveTile(w http.ResponseWriter, r *http.Request) {
 //	failed       → 404  (tile/info only; sheet API still shows the error)
 //	ready        → continue
 func (handler *Handler) resolveReadySheet(w http.ResponseWriter, r *http.Request, id string) *model.Sheet {
-	s, err := handler.sheets.GetByID(r.Context(), id)
+	s, err := handler.iiifSheets.GetByID(r.Context(), id)
 	if err != nil {
 		var notFound sheet.ErrNotFound
 		if errors.As(err, &notFound) {

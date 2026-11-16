@@ -27,7 +27,8 @@ type ServerConfig struct {
 	ProxyMaxInfoBodySize     int64         // maximum bytes read from an info.json response body; default 1 MB
 	ShutdownTimeout          time.Duration // graceful shutdown window; default 30s
 	Addr                    string
-	MaxUploadSize           int64 // bytes; default 1 GB
+	MaxUploadSize           int64         // bytes; default 1 GB
+	IIIFStatusCacheTTL      time.Duration // how long IIIF sheet status lookups are cached in memory; default 5s
 
 	// Auth — optional. Leave GitHubClientID empty to disable authentication.
 	GitHubClientID     string
@@ -109,6 +110,10 @@ func LoadServer() (*ServerConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	iiifStatusCacheTTL, err := envDuration("IIIF_STATUS_CACHE_TTL", 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &ServerConfig{
 		DatabaseURL:              readEnv("DATABASE_URL"),
@@ -133,6 +138,7 @@ func LoadServer() (*ServerConfig, error) {
 		SessionKey:               sessionKey,
 		SecureCookies:            envWithDefault("SECURE_COOKIES", "true") != "false",
 		SessionMaxAge:            sessionMaxAge,
+		IIIFStatusCacheTTL:       iiifStatusCacheTTL,
 	}
 	return cfg, checkRequired(
 		requireNonEmpty("DATABASE_URL", cfg.DatabaseURL),

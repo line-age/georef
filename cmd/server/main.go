@@ -71,6 +71,7 @@ func main() {
 		RetryAfterSeconds:    cfg.RetryAfterSeconds,
 		MultipartMemoryLimit: cfg.MultipartMemoryLimit,
 		MaxUploadSize:        cfg.MaxUploadSize,
+		IIIFStatusCacheTTL:   cfg.IIIFStatusCacheTTL,
 	})
 
 	server := &http.Server{

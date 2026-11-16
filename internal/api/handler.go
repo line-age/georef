@@ -13,7 +13,8 @@ import (
 
 // Handler holds the shared dependencies for all HTTP handlers.
 type Handler struct {
-	sheets               sheet.Accessor
+	sheets               sheet.Accessor // direct accessor used by sheet API handlers (always fresh)
+	iiifSheets           sheet.Accessor // TTL-cached accessor used by IIIF handlers only
 	store                storage.Store
 	imageProxy           *proxy.Proxy
 	authenticator        *auth.Authenticator
@@ -35,6 +36,7 @@ type Config struct {
 	RetryAfterSeconds    int
 	MultipartMemoryLimit int64
 	MaxUploadSize        int64
+	IIIFStatusCacheTTL   time.Duration // how long IIIF sheet status lookups are cached; 0 disables the cache
 }
 
 // New returns a Handler wired to the given dependencies.
@@ -45,6 +47,7 @@ func New(sheets sheet.Accessor, store storage.Store, imageProxy *proxy.Proxy, au
 	}
 	return &Handler{
 		sheets:               sheets,
+		iiifSheets:           sheet.NewCachedAccessor(sheets, cfg.IIIFStatusCacheTTL),
 		store:                store,
 		imageProxy:           imageProxy,
 		authenticator:        authenticator,
