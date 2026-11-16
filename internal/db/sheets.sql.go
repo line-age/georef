@@ -16,16 +16,16 @@ const columnList = `id, title, institution, source_url, rights_note, status, err
 
 const claimNext = `-- name: ClaimNext :one
 SELECT ` + columnList + ` FROM sheets
-WHERE status IN ('processing', 'failed')
+WHERE status = 'processing'
   AND retry_count < $1
 ORDER BY created_at
 LIMIT 1
 FOR UPDATE SKIP LOCKED
 `
 
-// ClaimNext atomically claims one sheet for the worker. Picks up processing rows and
-// failed rows that have not yet exhausted their retry budget (retry_count < maxRetries).
-// Rows with retry_count >= maxRetries are terminal and left untouched.
+// ClaimNext atomically claims one processing sheet for the worker.
+// failed rows are permanently terminal (retry_count >= max_retries by definition)
+// and are never claimable, so only processing rows are checked.
 // SKIP LOCKED means concurrent workers never block each other.
 func (q *Queries) ClaimNext(ctx context.Context, maxRetries int32) (Sheet, error) {
 	row := q.db.QueryRow(ctx, claimNext, maxRetries)

@@ -68,12 +68,12 @@ WHERE id = $1 AND status != 'deleted'
 RETURNING *;
 
 -- name: ClaimNext :one
--- Atomically claims one sheet for the worker. Picks up processing rows and
--- failed rows that have not yet exhausted their retry budget (retry_count < $1).
--- Rows with retry_count >= max_retries are terminal and left untouched.
+-- Atomically claims one processing sheet for the worker.
+-- failed rows are permanently terminal (retry_count >= max_retries by definition)
+-- and are never claimable, so only processing rows are checked.
 -- SKIP LOCKED means concurrent workers never block each other.
 SELECT * FROM sheets
-WHERE status IN ('processing', 'failed')
+WHERE status = 'processing'
   AND retry_count < $1
 ORDER BY created_at
 LIMIT 1
