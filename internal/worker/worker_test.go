@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,35 +18,63 @@ import (
 
 // inMemorySheetAccessor implements sheet.Accessor using an in-memory queue.
 // It records the final state of each processed sheet in results.
+// mu guards both queue and results because the worker calls ProcessNext from
+// its own goroutine while the test reads results from the test goroutine.
 type inMemorySheetAccessor struct {
+	mu      sync.Mutex
 	queue   []*model.Sheet
 	results []*model.Sheet
 }
 
 func (accessor *inMemorySheetAccessor) ProcessNext(ctx context.Context, maxRetries int, processor func(context.Context, *model.Sheet) (string, error)) (bool, error) {
+	accessor.mu.Lock()
+	var claimedSheet *model.Sheet
 	for i, s := range accessor.queue {
 		if int(s.RetryCount) >= maxRetries {
 			continue
 		}
 		accessor.queue = append(accessor.queue[:i], accessor.queue[i+1:]...)
-
-		pyramidPath, err := processor(ctx, s)
-		if err != nil {
-			s.RetryCount++
-			if int(s.RetryCount) >= maxRetries {
-				s.Status = model.StatusFailed
-			} else {
-				s.Status = model.StatusProcessing
-			}
-			s.ErrorMessage = err.Error()
-		} else {
-			s.Status = model.StatusReady
-			s.PyramidPath = pyramidPath
-		}
-		accessor.results = append(accessor.results, s)
-		return true, nil
+		claimedSheet = s
+		break
 	}
-	return false, nil
+	accessor.mu.Unlock()
+
+	if claimedSheet == nil {
+		return false, nil
+	}
+
+	pyramidPath, err := processor(ctx, claimedSheet)
+
+	accessor.mu.Lock()
+	if err != nil {
+		claimedSheet.RetryCount++
+		if int(claimedSheet.RetryCount) >= maxRetries {
+			claimedSheet.Status = model.StatusFailed
+		} else {
+			claimedSheet.Status = model.StatusProcessing
+		}
+		claimedSheet.ErrorMessage = err.Error()
+	} else {
+		claimedSheet.Status = model.StatusReady
+		claimedSheet.PyramidPath = pyramidPath
+	}
+	accessor.results = append(accessor.results, claimedSheet)
+	accessor.mu.Unlock()
+	return true, nil
+}
+
+// resultCount returns the number of processed sheets seen so far.
+func (accessor *inMemorySheetAccessor) resultCount() int {
+	accessor.mu.Lock()
+	defer accessor.mu.Unlock()
+	return len(accessor.results)
+}
+
+// resultAt returns the processed sheet at index i.
+func (accessor *inMemorySheetAccessor) resultAt(i int) *model.Sheet {
+	accessor.mu.Lock()
+	defer accessor.mu.Unlock()
+	return accessor.results[i]
 }
 
 func (accessor *inMemorySheetAccessor) Create(_ context.Context, _ *model.Sheet) error { return nil }
@@ -104,7 +133,7 @@ func TestWorkerRun(t *testing.T) {
 
 		deadline := time.After(3 * time.Second)
 		for {
-			if len(accessor.results) > 0 {
+			if accessor.resultCount() > 0 {
 				break
 			}
 			select {
@@ -116,7 +145,7 @@ func TestWorkerRun(t *testing.T) {
 		cancel()
 		<-done
 
-		processedSheet := accessor.results[0]
+		processedSheet := accessor.resultAt(0)
 		if processedSheet.Status != model.StatusReady {
 			t.Errorf("status: got %q, want ready", processedSheet.Status)
 		}
@@ -150,7 +179,7 @@ func TestWorkerRun(t *testing.T) {
 
 		deadline := time.After(3 * time.Second)
 		for {
-			if len(accessor.results) > 0 {
+			if accessor.resultCount() > 0 {
 				break
 			}
 			select {
@@ -162,7 +191,7 @@ func TestWorkerRun(t *testing.T) {
 		cancel()
 		<-done
 
-		processedSheet := accessor.results[0]
+		processedSheet := accessor.resultAt(0)
 		if processedSheet.Status != model.StatusFailed {
 			t.Errorf("status: got %q, want failed", processedSheet.Status)
 		}
@@ -217,8 +246,8 @@ func TestWorkerRun(t *testing.T) {
 		cancel()
 		<-done
 
-		if len(accessor.results) != 0 {
-			t.Errorf("expected no results for exhausted sheet, got %d", len(accessor.results))
+		if accessor.resultCount() != 0 {
+			t.Errorf("expected no results for exhausted sheet, got %d", accessor.resultCount())
 		}
 	})
 }
