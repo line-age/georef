@@ -73,28 +73,28 @@ func (repository *repository) List(ctx context.Context, filter ListFilter) ([]*m
 	return sheets, nil
 }
 
-func (repository *repository) Update(ctx context.Context, id string, mutate func(*model.Sheet) error) error {
+func (repository *repository) Update(ctx context.Context, id string, mutate func(*model.Sheet) error) (*model.Sheet, error) {
 	transaction, err := repository.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer transaction.Rollback(ctx) //nolint:errcheck
 
 	transactionQueries := repository.queries.WithTx(transaction)
 	row, err := transactionQueries.GetSheetByIDForUpdate(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound{ID: id}
+		return nil, ErrNotFound{ID: id}
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	sheet := toSheetModel(row)
 	if err := mutate(sheet); err != nil {
-		return err
+		return nil, err
 	}
 
-	_, err = transactionQueries.UpdateSheet(ctx, dbgen.UpdateSheetParams{
+	updated, err := transactionQueries.UpdateSheet(ctx, dbgen.UpdateSheetParams{
 		ID:          sheet.ID,
 		Title:       sheet.Title,
 		Institution: pgtype.Text{String: sheet.Institution, Valid: sheet.Institution != ""},
@@ -102,9 +102,12 @@ func (repository *repository) Update(ctx context.Context, id string, mutate func
 		RightsNote:  pgtype.Text{String: sheet.RightsNote, Valid: sheet.RightsNote != ""},
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return transaction.Commit(ctx)
+	if err := transaction.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return toSheetModel(updated), nil
 }
 
 func (repository *repository) SoftDelete(ctx context.Context, id string) error {

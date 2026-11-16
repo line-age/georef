@@ -14,6 +14,10 @@ type Store interface {
 	// It returns the path at which the file was stored.
 	SaveOriginalScan(ctx context.Context, id string, r io.Reader) (string, error)
 
+	// DeleteOriginalScan removes the original scan for the given sheet ID.
+	// Called to clean up orphaned files if the database create fails after a successful save.
+	DeleteOriginalScan(ctx context.Context, id string) error
+
 	// OpenOriginalScan returns a reader for the original scan of the given sheet ID.
 	// The caller must close the returned ReadCloser.
 	OpenOriginalScan(ctx context.Context, id string) (io.ReadCloser, error)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/line-age/georef/internal/api"
 	"github.com/line-age/georef/internal/config"
+	"github.com/line-age/georef/internal/proxy"
 	"github.com/line-age/georef/internal/sheet"
 	"github.com/line-age/georef/internal/storage"
 )
@@ -41,7 +42,8 @@ func main() {
 
 	sheets := sheet.NewRepository(pool)
 	store := storage.NewLocalStore(cfg.StorageRoot)
-	apiHandler := api.New(sheets, store, cfg.BaseURL, cfg.MaxUploadSize)
+	imageProxy := proxy.New()
+	apiHandler := api.New(sheets, store, imageProxy, cfg.BaseURL, cfg.ImageServerURL, cfg.MaxUploadSize)
 
 	slog.Info(logMsgServerStarting, "addr", cfg.Addr)
 	if err := http.ListenAndServe(cfg.Addr, apiHandler.Routes()); err != nil {

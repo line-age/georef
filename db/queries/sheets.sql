@@ -21,7 +21,8 @@ SELECT * FROM sheets WHERE id = $1 LIMIT 1 FOR UPDATE;
 
 -- name: ListSheets :many
 SELECT * FROM sheets
-WHERE (sqlc.narg('status')::sheet_status IS NULL OR status = sqlc.narg('status'))
+WHERE status != 'deleted'
+  AND ($3::sheet_status IS NULL OR status = $3)
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2;
 

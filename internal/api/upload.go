@@ -20,8 +20,9 @@ const (
 	msgStoreFailed  = "failed to store scan"
 	msgRecordFailed = "failed to create sheet record"
 
-	logMsgStoreOriginalScanFailed = "store original scan"
-	logMsgCreateSheetRecordFailed = "create sheet record"
+	logMsgStoreOriginalScanFailed  = "store original scan"
+	logMsgCreateSheetRecordFailed  = "create sheet record"
+	logMsgCleanupOrphanScanFailed  = "cleanup orphan scan"
 )
 
 // uploadResponse is the JSON body returned on a successful upload.
@@ -74,6 +75,9 @@ func (handler *Handler) uploadSheet(w http.ResponseWriter, r *http.Request) {
 
 	if err := handler.sheets.Create(r.Context(), sheet); err != nil {
 		slog.ErrorContext(r.Context(), logMsgCreateSheetRecordFailed, "id", id, "err", err)
+		if cleanupErr := handler.store.DeleteOriginalScan(r.Context(), id); cleanupErr != nil {
+			slog.ErrorContext(r.Context(), logMsgCleanupOrphanScanFailed, "id", id, "err", cleanupErr)
+		}
 		writeError(w, http.StatusInternalServerError, msgRecordFailed)
 		return
 	}
@@ -91,7 +95,7 @@ func (handler *Handler) uploadSheet(w http.ResponseWriter, r *http.Request) {
 // It returns the path at which the file was stored.
 func (handler *Handler) storeOriginalScan(ctx context.Context, id string, file io.Reader) (checksum string, size int64, path string, err error) {
 	hash := sha256.New()
-	counter := &countingReader{reader: io.TeeReader(io.LimitReader(file, handler.maxUploadSize), hash)}
+	counter := &countingReader{reader: io.TeeReader(file, hash)}
 	storedPath, err := handler.store.SaveOriginalScan(ctx, id, counter)
 	if err != nil {
 		return "", 0, "", err

@@ -29,7 +29,8 @@ type Accessor interface {
 
 	// Update applies mutate to the sheet and persists the result in a single transaction.
 	// mutate should modify only the descriptive metadata fields (title, institution, etc.).
-	Update(ctx context.Context, id string, mutate func(*model.Sheet) error) error
+	// Returns the mutated sheet so callers avoid a second round-trip to read it back.
+	Update(ctx context.Context, id string, mutate func(*model.Sheet) error) (*model.Sheet, error)
 
 	// SoftDelete sets status = 'deleted'. The row and its ID are never removed.
 	// Subsequent IIIF requests for the ID must return 410.

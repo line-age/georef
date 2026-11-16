@@ -26,6 +26,10 @@ func (store *localStore) OpenOriginalScan(_ context.Context, id string) (io.Read
 	return os.Open(store.scanPath(id))
 }
 
+func (store *localStore) DeleteOriginalScan(_ context.Context, id string) error {
+	return os.Remove(store.scanPath(id))
+}
+
 func (store *localStore) OriginalScanPath(_ context.Context, id string) (string, error) {
 	return store.scanPath(id), nil
 }

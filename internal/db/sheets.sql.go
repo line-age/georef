@@ -168,7 +168,8 @@ func (q *Queries) GetSheetByIDForUpdate(ctx context.Context, id string) (Sheet, 
 
 const listSheets = `-- name: ListSheets :many
 SELECT ` + columnList + ` FROM sheets
-WHERE ($3::sheet_status IS NULL OR status = $3)
+WHERE status != 'deleted'
+  AND ($3::sheet_status IS NULL OR status = $3)
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
 `
