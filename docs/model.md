@@ -17,6 +17,7 @@ erDiagram
         text        rights_note
         sheet_status status
         text        error_message
+        int         retry_count
         text        original_checksum
         bigint      original_size
         text        original_path
@@ -39,12 +40,11 @@ no separate queue system is needed.
 stateDiagram-v2
     [*] --> processing : POST /sheets (upload)
 
-    processing --> ready   : worker converts successfully
-    processing --> failed  : worker encounters an error
+    processing --> ready      : worker converts successfully
+    processing --> processing : conversion fails; retry_count below MAX_CONVERSION_RETRIES\n(re-enters queue)
+    processing --> failed     : conversion fails; retry_count reaches MAX_CONVERSION_RETRIES\n(terminal — never retried again)
 
-    failed --> processing  : worker retries automatically
-
-    processing --> deleted : soft delete while converting
+    processing --> deleted : soft delete
     ready      --> deleted : soft delete
     failed     --> deleted : soft delete
 
@@ -63,7 +63,8 @@ stateDiagram-v2
 | `source_url` | `TEXT` | Yes | URL where the scan was sourced, for attribution. |
 | `rights_note` | `TEXT` | Yes | Rights or licence statement to surface in the manifest. |
 | `status` | `sheet_status` | No | Processing lifecycle state. See diagram above. |
-| `error_message` | `TEXT` | Yes | Populated when `status = 'failed'`. Returned by the sheet API so the team can see what went wrong and decide whether to retry. |
+| `error_message` | `TEXT` | Yes | Populated when conversion fails. Cleared on success. |
+| `retry_count` | `INT` | No | Number of failed conversion attempts. When this reaches `MAX_CONVERSION_RETRIES` the row becomes permanently `failed` and `ClaimNext` skips it. |
 | `original_checksum` | `TEXT` | No | SHA-256 hex of the uploaded file. Used to verify storage round-trips. |
 | `original_size` | `BIGINT` | No | File size in bytes. Recorded at upload. |
 | `original_path` | `TEXT` | No | Storage-relative path (`sheets/{id}/original`). The original is never modified. |
@@ -110,14 +111,15 @@ The worker claims rows with `SELECT … FOR UPDATE SKIP LOCKED`. This means:
 
 ### Why the worker handles retries automatically
 
-The worker's claim query picks up both `processing` and `failed` rows. A `failed`
-sheet still has its original in storage, so the worker can attempt conversion again
-without any external trigger. This keeps the retry path identical to the initial
+The worker claims rows where `status IN ('processing', 'failed') AND retry_count < MAX_CONVERSION_RETRIES`.
+A failed sheet still has its original in storage, so the worker can attempt conversion
+again without any external trigger. This keeps the retry path identical to the initial
 conversion path — no separate mechanism, no manual intervention.
 
-A retry limit and cooldown (e.g. exponential backoff on `updated_at`) will be
-implemented in Stage 5 to prevent a permanently broken file from being claimed
-in a tight loop.
+Each failed attempt increments `retry_count`. Once `retry_count` reaches the
+configured maximum, `ClaimNext` permanently stops picking up that row (`status`
+stays `failed`). No background process or cron job is needed to enforce the limit —
+the SQL predicate handles it at claim time.
 
 ### Why soft delete instead of hard delete
 

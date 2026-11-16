@@ -40,7 +40,7 @@ paths:
                 source_url:
                   type: string
                   description: URL of the original source record (optional).
-                  example: "https://example.com/maps/ny30"
+                  example: "https://example.com/maps/42"
                 rights_note:
                   type: string
                   description: Rights or licensing note (optional).
@@ -66,7 +66,6 @@ paths:
                 sheet_url: "https://maps.example.com/sheets/01JEMKR9VXYZ0000000000000"
                 iiif_base_url: "https://maps.example.com/iiif/01JEMKR9VXYZ0000000000000"
                 manifest_url: "https://maps.example.com/iiif/01JEMKR9VXYZ0000000000000/manifest"
-
         "400":
           description: |
             Validation error. The request was malformed or a required field
@@ -92,7 +91,6 @@ paths:
                   summary: Multipart form could not be parsed
                   value:
                     error: "invalid multipart form"
-
         "413":
           description: |
             The uploaded file exceeds the configured maximum size
@@ -103,26 +101,301 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
               example:
                 error: "file too large"
-
         "500":
-          description: |
-            Internal error. The file could not be stored or the sheet record
-            could not be created. The request may be retried.
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      summary: List sheets
+      description: |
+        Returns sheets in reverse-chronological order. Deleted sheets are
+        always excluded. Optionally filter by status.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [processing, ready, failed]
+          description: "Filter by lifecycle status. Omit to return all non-deleted sheets."
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          description: "Maximum number of sheets to return."
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: "Number of sheets to skip (for pagination)."
+      responses:
+        "200":
+          description: List of sheets.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-              examples:
-                store_failed:
-                  summary: Storage write failed
-                  value:
-                    error: "failed to store scan"
-                record_failed:
-                  summary: Database insert failed
-                  value:
-                    error: "failed to create sheet record"
+                $ref: "#/components/schemas/SheetList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /sheets/{id}:
+    parameters:
+      - $ref: "#/components/parameters/SheetID"
+
+    get:
+      summary: Get a sheet
+      description: |
+        Returns the sheet record. Returns `410 Gone` if the sheet has been
+        deleted; the ID is permanently retired and will never be reused.
+      responses:
+        "200":
+          description: Sheet record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sheet"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/Gone"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    patch:
+      summary: Update sheet metadata
+      description: |
+        Replaces all editable metadata fields (title, institution, source_url,
+        rights_note). Title is required. Returns the updated sheet record.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSheetRequest"
+      responses:
+        "200":
+          description: Updated sheet record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sheet"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/Gone"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      summary: Delete a sheet
+      description: |
+        Soft-deletes the sheet. The row and ID are retained permanently;
+        all subsequent IIIF requests for this ID return `410 Gone`.
+        Deleting an already-deleted sheet is idempotent and returns `204`.
+      responses:
+        "204":
+          description: Sheet deleted (or was already deleted).
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /iiif/{id}/manifest:
+    parameters:
+      - $ref: "#/components/parameters/SheetID"
+
+    get:
+      summary: IIIF Presentation v3 manifest
+      description: |
+        Returns a IIIF Presentation API v3 manifest for a ready sheet.
+        The manifest includes the canvas dimensions obtained from the image
+        server and an embedded IIIF Image API v2 service reference.
+
+        Status routing: `processing` → `503`, `failed` → `404`, `deleted` → `410`.
+      responses:
+        "200":
+          description: IIIF Presentation v3 manifest.
+          content:
+            application/ld+json:
+              schema:
+                type: object
+                description: IIIF Presentation API v3 Manifest document.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/Gone"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+  /iiif/{id}/info.json:
+    parameters:
+      - $ref: "#/components/parameters/SheetID"
+
+    get:
+      summary: IIIF Image API info.json
+      description: |
+        Proxies the IIIF Image API v2 info.json from the internal image server.
+        The `@id` field is rewritten to the public URL before the response is
+        forwarded to the client.
+
+        Status routing: `processing` → `503`, `failed` → `404`, `deleted` → `410`.
+      responses:
+        "200":
+          description: IIIF Image API v2 image descriptor.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: IIIF Image API v2 info.json document.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/Gone"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+  /iiif/{id}/{region}/{size}/{rotation}/{quality}.{format}:
+    parameters:
+      - $ref: "#/components/parameters/SheetID"
+      - name: region
+        in: path
+        required: true
+        schema:
+          type: string
+        example: "full"
+      - name: size
+        in: path
+        required: true
+        schema:
+          type: string
+        example: "max"
+      - name: rotation
+        in: path
+        required: true
+        schema:
+          type: string
+        example: "0"
+      - name: quality
+        in: path
+        required: true
+        schema:
+          type: string
+        example: "default"
+      - name: format
+        in: path
+        required: true
+        schema:
+          type: string
+        example: "jpg"
+
+    get:
+      summary: IIIF Image API tile
+      description: |
+        Proxies a IIIF Image API v2 tile request to the internal image server
+        and streams the response without buffering.
+
+        Status routing: `processing` → `503`, `failed` → `404`, `deleted` → `410`.
+      responses:
+        "200":
+          description: Image tile in the requested format.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/Gone"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "502":
+          $ref: "#/components/responses/BadGateway"
 
 components:
+  parameters:
+    SheetID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: ULID sheet identifier, stable forever.
+      example: "01JEMKR9VXYZ0000000000000"
+
+  responses:
+    BadRequest:
+      description: Validation error. The request was malformed or a required field was invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: The sheet does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "sheet not found"
+    Gone:
+      description: |
+        The sheet was deleted. The ID is permanently retired and will never
+        be reused. IIIF clients must not retry this URL.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "sheet permanently removed"
+    ServiceUnavailable:
+      description: The sheet is still being converted. Retry after the indicated delay.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait before retrying.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "sheet is being processed; retry after a few seconds"
+    BadGateway:
+      description: The internal image server could not be reached.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "image server unavailable"
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "internal server error"
+
   schemas:
     UploadResponse:
       type: object
@@ -152,6 +425,106 @@ components:
           type: string
           description: IIIF Presentation API manifest URL.
           example: "https://maps.example.com/iiif/01JEMKR9VXYZ0000000000000/manifest"
+
+    Sheet:
+      type: object
+      required:
+        - id
+        - title
+        - status
+        - retry_count
+        - original_checksum
+        - original_size
+        - iiif_base_url
+        - manifest_url
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          description: ULID identifier, stable forever.
+          example: "01JEMKR9VXYZ0000000000000"
+        title:
+          type: string
+          example: "Topographic survey 1:25000 — Sheet 42"
+        institution:
+          type: string
+          example: "National Map Archive"
+        source_url:
+          type: string
+          example: "https://example.com/maps/42"
+        rights_note:
+          type: string
+          example: "Public domain"
+        status:
+          type: string
+          enum: [processing, ready, failed, deleted]
+          description: Lifecycle status of the sheet.
+        error_message:
+          type: string
+          description: Set when status is 'failed'; describes why conversion failed.
+        retry_count:
+          type: integer
+          description: Number of failed conversion attempts that have completed (not crashed).
+        original_checksum:
+          type: string
+          description: SHA-256 hex digest of the original scan as uploaded.
+        original_size:
+          type: integer
+          description: Byte size of the original scan.
+        iiif_base_url:
+          type: string
+          description: IIIF Image API base URL for this sheet.
+        manifest_url:
+          type: string
+          description: IIIF Presentation API manifest URL for this sheet.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          description: Set when status is 'deleted'.
+
+    SheetList:
+      type: object
+      required:
+        - sheets
+        - limit
+        - offset
+      properties:
+        sheets:
+          type: array
+          items:
+            $ref: "#/components/schemas/Sheet"
+        limit:
+          type: integer
+          description: The limit that was applied.
+        offset:
+          type: integer
+          description: The offset that was applied.
+
+    UpdateSheetRequest:
+      type: object
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          description: Display title (required).
+          example: "Topographic survey 1:25000 — Sheet 42"
+        institution:
+          type: string
+          description: Holding institution (optional; empty string clears the field).
+        source_url:
+          type: string
+          description: Source record URL (optional; empty string clears the field).
+        rights_note:
+          type: string
+          description: Rights note (optional; empty string clears the field).
 
     ErrorResponse:
       type: object
