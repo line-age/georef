@@ -4,14 +4,59 @@ This document explains what happens when a scan is uploaded and how the worker
 converts it into a tile-ready pyramidal TIFF. It covers the happy path and what
 happens when conversion fails.
 
-## Upload flow
+## Auth flow
 
-When a client sends `POST /sheets`, the server processes the request in three
-steps: validate the file, store it, then write the database record.
+Write endpoints (`POST /sheets`, `PATCH /sheets/{id}`, `DELETE /sheets/{id}`)
+require a GitHub session in a configured team. When `GITHUB_CLIENT_ID` is not
+set, authentication is disabled and all requests pass through (local
+development).
 
 ```mermaid
 flowchart TD
-    A([client sends POST /sheets]) --> B[parse multipart form\nup to MAX_UPLOAD_SIZE bytes]
+    A([browser visits /auth/login]) --> B[server generates random state\nstores in session cookie]
+    B --> C[302 → GitHub OAuth authorisation URL]
+    C --> D([GitHub shows permission screen])
+    D --> E{user approves?}
+    E -->|no| F([GitHub redirects back without code])
+    E -->|yes| G[GET /auth/callback?code=...&state=...]
+    G --> H{state matches session?}
+    H -->|no| I[400 Bad Request]
+    H -->|yes| J[exchange code for OAuth token\nvia GitHub token endpoint]
+    J --> K{exchange OK?}
+    K -->|no| L[500 Internal Server Error]
+    K -->|yes| M[GET /user/teams — list user's teams]
+    M --> N{any team in GITHUB_ALLOWED_TEAMS?}
+    N -->|no| O[403 Forbidden]
+    N -->|yes| P[set session authenticated=true\nMax-Age SESSION_MAX_AGE]
+    P --> Q[302 → /]
+```
+
+### Key points
+
+- **State parameter** prevents CSRF on the callback — the server generates a
+  random nonce, stores it in the session, and rejects callbacks where the
+  `state` query param does not match.
+- **Team check happens once at login.** The session stores `authenticated=true`
+  and expires after `SESSION_MAX_AGE` (default 7 days). On expiry the user
+  re-authenticates and the team membership is re-checked.
+- **`RequireWrite` middleware** checks only the session flag — no Postgres hit,
+  no GitHub API call per request.
+- **Disabled mode** — when `GITHUB_CLIENT_ID` is unset, `RequireWrite` is a
+  passthrough and the `/auth/*` routes still exist but redirect immediately to
+  `/`.
+
+---
+
+## Upload flow
+
+When a client sends `POST /sheets`, the server checks auth, then processes the
+request in three steps: validate the file, store it, write the database record.
+
+```mermaid
+flowchart TD
+    A([client sends POST /sheets]) --> AA{authenticated session?}
+    AA -->|no, auth enabled| AB[401 Unauthorized]
+    AA -->|yes or auth disabled| B[parse multipart form\nup to MAX_UPLOAD_SIZE bytes]
     B --> C{size limit hit?}
     C -->|yes| D[413 Request Entity Too Large]
     C -->|no| E{MIME type\nimage/tiff or image/jpeg?}
@@ -50,7 +95,7 @@ and processes them one at a time.
 flowchart TD
     A([worker starts]) --> B[wait for poll interval\nor immediately if previous job was found]
     B --> C[BEGIN transaction]
-    C --> D["SELECT … FOR UPDATE SKIP LOCKED\nWHERE status IN ('processing', 'failed')\nORDER BY created_at LIMIT 1"]
+    C --> D["SELECT … FOR UPDATE SKIP LOCKED\nWHERE status = 'processing'\nORDER BY created_at LIMIT 1"]
     D --> E{row found?}
     E -->|no| F[ROLLBACK\nsleep poll interval]
     F --> B
@@ -79,7 +124,7 @@ queue. `ProcessNext` opens a database transaction and runs:
 
 ```sql
 SELECT * FROM sheets
-WHERE status IN ('processing', 'failed')
+WHERE status = 'processing'
   AND retry_count < $1   -- $1 = MAX_CONVERSION_RETRIES; skips terminal sheets
 ORDER BY created_at
 LIMIT 1
@@ -161,3 +206,37 @@ stateDiagram-v2
     failed --> deleted: DELETE /sheets/{id}
     deleted --> [*]: ID permanently returns 410
 ```
+
+---
+
+## Upload form flow
+
+The web form at `GET /` lets a user upload a scan from the browser without
+calling the API directly.
+
+```mermaid
+flowchart TD
+    A([user visits GET /]) --> B[server renders upload.html via html/template]
+    B --> C([user fills form and clicks Upload])
+    C --> D[browser POST /sheets via fetch]
+    D --> E{response status}
+    E -->|401 or 403| F[show GitHub login link\nno polling started]
+    E -->|400 or 413| G[show validation error\nre-enable submit button]
+    E -->|500| H[show server error\nre-enable submit button]
+    E -->|202| I[show 'Uploaded — converting'\nstart polling GET /sheets/id every 3 s]
+    I --> J{polled status}
+    J -->|processing| K[update status display\ncontinue polling]
+    K --> J
+    J -->|ready| L[show IIIF base URL and manifest URL\nstop polling]
+    J -->|failed| M[show error_message\nstop polling]
+```
+
+### Key points
+
+- **Login hint.** A `401` or `403` from `POST /sheets` shows a link to
+  `/auth/login` rather than an error. The form is served without auth so anyone
+  can visit it; only the submit step requires a session.
+- **Polling.** The form polls `GET /sheets/{id}` every 3 seconds. This is a
+  simple interval loop — no websocket, no server-sent events.
+- **No framework.** The form uses plain HTML and vanilla JS. The server renders
+  it with Go's `html/template` package.

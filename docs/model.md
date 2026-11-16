@@ -111,7 +111,7 @@ The worker claims rows with `SELECT … FOR UPDATE SKIP LOCKED`. This means:
 
 ### Why the worker handles retries automatically
 
-The worker claims rows where `status IN ('processing', 'failed') AND retry_count < MAX_CONVERSION_RETRIES`.
+The worker claims rows where `status = 'processing' AND retry_count < MAX_CONVERSION_RETRIES`.
 A failed sheet still has its original in storage, so the worker can attempt conversion
 again without any external trigger. This keeps the retry path identical to the initial
 conversion path — no separate mechanism, no manual intervention.

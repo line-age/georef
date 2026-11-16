@@ -42,9 +42,11 @@ flowchart LR
 
 | Request | Handled by | What happens |
 |---|---|---|
-| `POST /sheets` | our service | Upload. GitHub login in an allowed team. See below. |
+| `GET /` | our service | Serves the browser upload form. No auth required. |
+| `GET /auth/login`, `/auth/callback`, `POST /auth/logout` | our service | GitHub OAuth flow and session management. See `docs/auth.md`. |
+| `POST /sheets` | our service | Upload. GitHub session required when auth is enabled. |
 | `GET /sheets`, `GET /sheets/{id}` | our service | List, search and read sheet records from Postgres. |
-| `PATCH`, `DELETE /sheets/{id}` | our service | Edit metadata, delete. GitHub login in an allowed team. |
+| `PATCH`, `DELETE /sheets/{id}` | our service | Edit metadata, delete. GitHub session required when auth is enabled. |
 | `GET /iiif/{id}/manifest` | our service | IIIF Presentation manifest, built from the record. |
 | `GET /iiif/{id}/info.json`, tiles | our service, then the image server | Checked by our service, then streamed from the image server. |
 
@@ -121,9 +123,26 @@ authorization. The remaining difference is storage. Cantaloupe reads S3 directly
 we know IIPImage reads only the local filesystem, so S3 storage would mean mounting the
 bucket. That points to Cantaloupe, and it is the one to rule out first.
 
+## Image server choice
+
+Cantaloupe is used. Configuration uses `path_prefix` and `path_suffix` so the
+IIIF identifier is the bare ULID with no slashes:
+
+```
+identifier  = {id}
+path_prefix = /data/storage/sheets/
+path_suffix = /pyramid.tif
+→ file       = /data/storage/sheets/{id}/pyramid.tif
+```
+
+This avoids the `%2F` path-traversal defence in Cantaloupe's embedded Jetty
+server, which would reject identifiers containing encoded slashes.
+
+Pyramid TIFFs are written with `0644` permissions so Cantaloupe (running as a
+different UID in the container) can read them.
+
 ## Open
 
-- Which image server. See above.
 - Whether Cantaloupe caches a `404` for an identifier and keeps serving it after the file
   appears. Less likely to matter now, since the image server only sees requests for ready
   sheets, but worth checking.

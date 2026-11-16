@@ -8,6 +8,69 @@ info:
     background worker. IIIF URLs are stable from the moment of upload.
 
 paths:
+  /:
+    get:
+      summary: Upload form
+      description: |
+        Serves the browser-based upload form. No authentication required to
+        view the form; submitting it (`POST /sheets`) requires a GitHub session.
+      responses:
+        "200":
+          description: HTML upload form.
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /auth/login:
+    get:
+      summary: Begin GitHub OAuth login
+      description: |
+        Generates a random state nonce, stores it in the session cookie, and
+        redirects the browser to GitHub's OAuth authorisation page.
+        When `GITHUB_CLIENT_ID` is not configured, redirects immediately to `/`.
+      responses:
+        "302":
+          description: Redirect to GitHub or to `/` when auth is disabled.
+
+  /auth/callback:
+    get:
+      summary: Handle GitHub OAuth callback
+      description: |
+        Exchanges the authorisation code for an OAuth token, checks whether the
+        authenticated user is in a configured team, and creates a session on
+        success. On team mismatch returns `403` without creating a session.
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Authorisation code from GitHub.
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: State nonce; must match the value stored in the session cookie.
+      responses:
+        "302":
+          description: Session created; redirect to `/`.
+        "400":
+          description: State parameter missing or does not match session.
+        "403":
+          description: Authenticated user is not in any configured team.
+        "500":
+          description: Token exchange or team-membership check failed.
+
+  /auth/logout:
+    post:
+      summary: End session
+      description: Clears the session cookie and redirects to `/`.
+      responses:
+        "302":
+          description: Session cleared; redirect to `/`.
+
   /sheets:
     post:
       summary: Upload a scanned map
@@ -91,6 +154,8 @@ paths:
                   summary: Multipart form could not be parsed
                   value:
                     error: "invalid multipart form"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "413":
           description: |
             The uploaded file exceeds the configured maximum size
@@ -174,6 +239,7 @@ paths:
       description: |
         Replaces all editable metadata fields (title, institution, source_url,
         rights_note). Title is required. Returns the updated sheet record.
+        Requires a GitHub session in an allowed team.
       requestBody:
         required: true
         content:
@@ -189,6 +255,8 @@ paths:
                 $ref: "#/components/schemas/Sheet"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
         "410":
@@ -202,9 +270,12 @@ paths:
         Soft-deletes the sheet. The row and ID are retained permanently;
         all subsequent IIIF requests for this ID return `410 Gone`.
         Deleting an already-deleted sheet is idempotent and returns `204`.
+        Requires a GitHub session in an allowed team.
       responses:
         "204":
           description: Sheet deleted (or was already deleted).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -342,6 +413,17 @@ components:
       example: "01JEMKR9VXYZ0000000000000"
 
   responses:
+    Unauthorized:
+      description: |
+        No authenticated session. Log in at `GET /auth/login` to obtain a session,
+        then retry the request. Returned only when authentication is enabled
+        (`GITHUB_CLIENT_ID` is set).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "authentication required"
     BadRequest:
       description: Validation error. The request was malformed or a required field was invalid.
       content:
