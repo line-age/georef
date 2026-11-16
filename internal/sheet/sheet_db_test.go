@@ -139,7 +139,7 @@ func TestSheetDB(t *testing.T) {
 		}
 	})
 
-	t.Run("process_next_marks_sheet_failed_on_fn_error", func(t *testing.T) {
+	t.Run("process_next_requeues_sheet_on_fn_error_with_retries_remaining", func(t *testing.T) {
 		drainQueue() // consume any sheets left processing by prior subtests
 		newSheet := newTestSheet("01JTEST00000000000000000011")
 		if err := sheets.Create(ctx, newSheet); err != nil {
@@ -157,15 +157,19 @@ func TestSheetDB(t *testing.T) {
 			t.Fatal("want found=true, got false")
 		}
 
-		failedSheet, err := sheets.GetByID(ctx, newSheet.ID)
+		// With retries remaining, the sheet re-enters the queue as processing.
+		requeuedSheet, err := sheets.GetByID(ctx, newSheet.ID)
 		if err != nil {
 			t.Fatalf("GetByID: %v", err)
 		}
-		if failedSheet.Status != model.StatusFailed {
-			t.Errorf("status: got %q, want %q", failedSheet.Status, model.StatusFailed)
+		if requeuedSheet.Status != model.StatusProcessing {
+			t.Errorf("status: got %q, want %q", requeuedSheet.Status, model.StatusProcessing)
 		}
-		if failedSheet.ErrorMessage != convertErr.Error() {
-			t.Errorf("error_message: got %q, want %q", failedSheet.ErrorMessage, convertErr.Error())
+		if requeuedSheet.RetryCount != 1 {
+			t.Errorf("retry_count: got %d, want 1", requeuedSheet.RetryCount)
+		}
+		if requeuedSheet.ErrorMessage != convertErr.Error() {
+			t.Errorf("error_message: got %q, want %q", requeuedSheet.ErrorMessage, convertErr.Error())
 		}
 	})
 

@@ -55,8 +55,8 @@ func (accessor *inMemorySheetAccessor) GetByID(_ context.Context, _ string) (*mo
 func (accessor *inMemorySheetAccessor) List(_ context.Context, _ sheet.ListFilter) ([]*model.Sheet, error) {
 	return nil, nil
 }
-func (accessor *inMemorySheetAccessor) Update(_ context.Context, _ string, _ func(*model.Sheet) error) error {
-	return nil
+func (accessor *inMemorySheetAccessor) Update(_ context.Context, _ string, _ func(*model.Sheet) error) (*model.Sheet, error) {
+	return nil, nil
 }
 func (accessor *inMemorySheetAccessor) SoftDelete(_ context.Context, _ string) error { return nil }
 
