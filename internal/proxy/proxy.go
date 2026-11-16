@@ -52,13 +52,13 @@ func New(cfg Config) *Proxy {
 // ServeInfoJSON fetches info.json from upstreamURL, rewrites the @id field
 // to publicIIIFBaseURL (the external URL the client will use to request tiles),
 // then writes the modified document to w.
-func (proxy *Proxy) ServeInfoJSON(w http.ResponseWriter, r *http.Request, upstreamURL, publicIIIFBaseURL string) error {
+func (imageProxy *Proxy) ServeInfoJSON(w http.ResponseWriter, r *http.Request, upstreamURL, publicIIIFBaseURL string) error {
 	upstreamReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL, nil)
 	if err != nil {
 		return err
 	}
 
-	upstreamResp, err := proxy.client.Do(upstreamReq)
+	upstreamResp, err := imageProxy.client.Do(upstreamReq)
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func (proxy *Proxy) ServeInfoJSON(w http.ResponseWriter, r *http.Request, upstre
 	}
 
 	var doc map[string]any
-	if err := json.NewDecoder(io.LimitReader(upstreamResp.Body, proxy.maxInfoBodySize)).Decode(&doc); err != nil {
+	if err := json.NewDecoder(io.LimitReader(upstreamResp.Body, imageProxy.maxInfoBodySize)).Decode(&doc); err != nil {
 		return err
 	}
 	doc["@id"] = publicIIIFBaseURL
@@ -87,13 +87,13 @@ func (proxy *Proxy) ServeInfoJSON(w http.ResponseWriter, r *http.Request, upstre
 }
 
 // ServeTile streams the upstream tile response to w without buffering the body.
-func (proxy *Proxy) ServeTile(w http.ResponseWriter, r *http.Request, upstreamURL string) error {
+func (imageProxy *Proxy) ServeTile(w http.ResponseWriter, r *http.Request, upstreamURL string) error {
 	upstreamReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL, nil)
 	if err != nil {
 		return err
 	}
 
-	upstreamResp, err := proxy.client.Do(upstreamReq)
+	upstreamResp, err := imageProxy.client.Do(upstreamReq)
 	if err != nil {
 		return err
 	}
@@ -111,13 +111,13 @@ func (proxy *Proxy) ServeTile(w http.ResponseWriter, r *http.Request, upstreamUR
 
 // FetchDimensions fetches info.json from infoURL and returns the image width and height.
 // Used by the manifest handler to populate canvas dimensions.
-func (proxy *Proxy) FetchDimensions(ctx context.Context, infoURL string) (width, height int, err error) {
+func (imageProxy *Proxy) FetchDimensions(ctx context.Context, infoURL string) (width, height int, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, infoURL, nil)
 	if err != nil {
 		return 0, 0, err
 	}
 
-	resp, err := proxy.client.Do(req)
+	resp, err := imageProxy.client.Do(req)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -131,7 +131,7 @@ func (proxy *Proxy) FetchDimensions(ctx context.Context, infoURL string) (width,
 		Width  int `json:"width"`
 		Height int `json:"height"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, proxy.maxInfoBodySize)).Decode(&info); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, imageProxy.maxInfoBodySize)).Decode(&info); err != nil {
 		return 0, 0, err
 	}
 	return info.Width, info.Height, nil

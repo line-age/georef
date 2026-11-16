@@ -64,6 +64,18 @@ type ImageService struct {
 	Profile string `json:"profile"`
 }
 
+const (
+	// presentationAPIContextURL is the JSON-LD context for IIIF Presentation API v3.
+	presentationAPIContextURL = "http://iiif.io/api/presentation/3/context.json"
+
+	// imageBodyFormat is the MIME type of the IIIF image served by the proxy.
+	imageBodyFormat = "image/jpeg"
+
+	// annotationMotivation is the painting motivation required by IIIF Presentation API v3
+	// to place an image body onto its canvas.
+	annotationMotivation = "painting"
+)
+
 // Build constructs a IIIF Presentation v3 manifest for the given sheet.
 // publicBaseURL is the external root (e.g. "https://maps.example.com").
 // imageAPIVersion is the IIIF Image API version (e.g. 2).
@@ -77,7 +89,7 @@ func Build(sheet *model.Sheet, publicBaseURL string, imageAPIVersion, imageAPILe
 	serviceProfile := fmt.Sprintf("http://iiif.io/api/image/%d/level%d.json", imageAPIVersion, imageAPILevel)
 
 	return &Manifest{
-		Context: "http://iiif.io/api/presentation/3/context.json",
+		Context: presentationAPIContextURL,
 		ID:      iiifBase + "/manifest",
 		Type:    "Manifest",
 		Label:   LanguageMap{"none": {sheet.Title}},
@@ -95,11 +107,11 @@ func Build(sheet *model.Sheet, publicBaseURL string, imageAPIVersion, imageAPILe
 							{
 								ID:         canvasID + "/painting",
 								Type:       "Annotation",
-								Motivation: "painting",
+								Motivation: annotationMotivation,
 								Body: ImageBody{
 									ID:     iiifBase + "/full/max/0/default.jpg",
 									Type:   "Image",
-									Format: "image/jpeg",
+									Format: imageBodyFormat,
 									Width:  width,
 									Height: height,
 									Service: []ImageService{

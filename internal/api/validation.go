@@ -55,14 +55,28 @@ func parseUploadRequest(request *http.Request, memoryLimit int64) (*uploadReques
 	}, nil
 }
 
-// validate checks that all required fields are present and that the file's
-// actual content matches an accepted type. It reads the first 512 bytes rather
-// than trusting the client-supplied Content-Type header.
+// validate checks that all required fields are present and that the uploaded
+// file's content is an accepted type.
 func (form *uploadRequest) validate() error {
+	if err := form.validateRequiredFields(); err != nil {
+		return err
+	}
+	return form.validateFileContentType()
+}
+
+// validateRequiredFields returns an error when any mandatory form field is missing.
+func (form *uploadRequest) validateRequiredFields() error {
 	if form.Title == "" {
 		return errors.New(msgTitleRequired)
 	}
+	return nil
+}
 
+// validateFileContentType reads the first 512 bytes of the uploaded file and
+// returns an error if the detected MIME type is not in allowedContentTypes.
+// It rewinds the file cursor to the start before returning, so callers can
+// read the full file contents afterwards.
+func (form *uploadRequest) validateFileContentType() error {
 	contentTypeProbeBytes := make([]byte, 512)
 	bytesRead, readErr := form.File.Read(contentTypeProbeBytes)
 	if _, err := form.File.Seek(0, io.SeekStart); err != nil {

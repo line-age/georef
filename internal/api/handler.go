@@ -72,23 +72,23 @@ type sheetResponse struct {
 }
 
 // toSheetResponse converts a domain sheet into the API response type.
-func (handler *Handler) toSheetResponse(s *model.Sheet) sheetResponse {
+func (handler *Handler) toSheetResponse(sheetRecord *model.Sheet) sheetResponse {
 	return sheetResponse{
-		ID:               s.ID,
-		Title:            s.Title,
-		Institution:      s.Institution,
-		SourceURL:        s.SourceURL,
-		RightsNote:       s.RightsNote,
-		Status:           string(s.Status),
-		ErrorMessage:     s.ErrorMessage,
-		RetryCount:       s.RetryCount,
-		OriginalChecksum: s.OriginalChecksum,
-		OriginalSize:     s.OriginalSize,
-		IIIFBaseURL:      handler.baseURL + "/iiif/" + s.ID,
-		ManifestURL:      handler.baseURL + "/iiif/" + s.ID + "/manifest",
-		CreatedAt:        s.CreatedAt,
-		UpdatedAt:        s.UpdatedAt,
-		DeletedAt:        s.DeletedAt,
+		ID:               sheetRecord.ID,
+		Title:            sheetRecord.Title,
+		Institution:      sheetRecord.Institution,
+		SourceURL:        sheetRecord.SourceURL,
+		RightsNote:       sheetRecord.RightsNote,
+		Status:           string(sheetRecord.Status),
+		ErrorMessage:     sheetRecord.ErrorMessage,
+		RetryCount:       sheetRecord.RetryCount,
+		OriginalChecksum: sheetRecord.OriginalChecksum,
+		OriginalSize:     sheetRecord.OriginalSize,
+		IIIFBaseURL:      handler.baseURL + "/iiif/" + sheetRecord.ID,
+		ManifestURL:      handler.baseURL + "/iiif/" + sheetRecord.ID + "/manifest",
+		CreatedAt:        sheetRecord.CreatedAt,
+		UpdatedAt:        sheetRecord.UpdatedAt,
+		DeletedAt:        sheetRecord.DeletedAt,
 	}
 }
 

@@ -106,13 +106,13 @@ type updateSheetRequest struct {
 func (handler *Handler) updateSheet(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	var body updateSheetRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	var updateRequest updateSheetRequest
+	if err := json.NewDecoder(r.Body).Decode(&updateRequest); err != nil {
 		writeError(w, http.StatusBadRequest, msgInvalidJSON)
 		return
 	}
 
-	if body.Title == "" {
+	if updateRequest.Title == "" {
 		writeError(w, http.StatusBadRequest, msgTitleRequiredPatch)
 		return
 	}
@@ -123,10 +123,10 @@ func (handler *Handler) updateSheet(w http.ResponseWriter, r *http.Request) {
 		if s.Status == model.StatusDeleted {
 			return errDeletedSheet
 		}
-		s.Title = body.Title
-		s.Institution = body.Institution
-		s.SourceURL = body.SourceURL
-		s.RightsNote = body.RightsNote
+		s.Title = updateRequest.Title
+		s.Institution = updateRequest.Institution
+		s.SourceURL = updateRequest.SourceURL
+		s.RightsNote = updateRequest.RightsNote
 		return nil
 	})
 	if updateErr != nil {
