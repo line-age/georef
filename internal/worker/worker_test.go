@@ -213,9 +213,7 @@ func TestWorkerRun(t *testing.T) {
 		}()
 
 		// Give the worker a few poll intervals then cancel.
-		select {
-		case <-time.After(100 * time.Millisecond):
-		}
+		<-time.After(100 * time.Millisecond)
 		cancel()
 		<-done
 
