@@ -69,9 +69,26 @@ func (form *uploadRequest) validate() error {
 		return errors.New(msgInvalidForm)
 	}
 
-	detectedContentType := http.DetectContentType(contentTypeProbeBytes[:bytesRead])
+	detectedContentType := detectContentType(contentTypeProbeBytes[:bytesRead])
 	if !allowedContentTypes[detectedContentType] {
 		return errors.New(msgFileTypeInvalid)
 	}
 	return nil
+}
+
+// detectContentType sniffs the MIME type of a file from its leading bytes.
+// http.DetectContentType does not recognise TIFF, so TIFF magic is checked first.
+func detectContentType(data []byte) string {
+	if isTIFF(data) {
+		return "image/tiff"
+	}
+	return http.DetectContentType(data)
+}
+
+// isTIFF reports whether data starts with a TIFF magic number.
+// TIFF files start with either "II\x2A\x00" (little-endian) or "MM\x00\x2A" (big-endian).
+func isTIFF(data []byte) bool {
+	return len(data) >= 4 &&
+		((data[0] == 0x49 && data[1] == 0x49 && data[2] == 0x2A && data[3] == 0x00) ||
+			(data[0] == 0x4D && data[1] == 0x4D && data[2] == 0x00 && data[3] == 0x2A))
 }
