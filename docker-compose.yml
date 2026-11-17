@@ -38,7 +38,12 @@ services:
       dockerfile: deploy/Dockerfile
       target: server
     environment:
-      DATABASE_URL: postgres://georef:georef@postgres:5432/georef?sslmode=disable
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: georef
+      DB_USER: georef
+      DB_PASSWORD: georef
+      DB_SSLMODE: disable
       STORAGE_ROOT: /data/storage
       BASE_URL: http://localhost:8080
       IMAGE_SERVER_URL: http://cantaloupe:8182
@@ -69,7 +74,12 @@ services:
       dockerfile: deploy/Dockerfile
       target: worker
     environment:
-      DATABASE_URL: postgres://georef:georef@postgres:5432/georef?sslmode=disable
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: georef
+      DB_USER: georef
+      DB_PASSWORD: georef
+      DB_SSLMODE: disable
       STORAGE_ROOT: /data/storage
       POLL_INTERVAL: 5s
       # VIPS_TILE_WIDTH: 256

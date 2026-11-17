@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -115,8 +116,19 @@ func LoadServer() (*ServerConfig, error) {
 		return nil, err
 	}
 
+	dbName := readEnv("DB_NAME")
+	dbUser := readEnv("DB_USER")
+	dbPassword := readEnv("DB_PASSWORD")
+
 	cfg := &ServerConfig{
-		DatabaseURL:              readEnv("DATABASE_URL"),
+		DatabaseURL:              buildDatabaseURL(
+			envWithDefault("DB_HOST", "localhost"),
+			envWithDefault("DB_PORT", "5432"),
+			dbName,
+			dbUser,
+			dbPassword,
+			envWithDefault("DB_SSLMODE", "disable"),
+		),
 		StorageRoot:              readEnv("STORAGE_ROOT"),
 		BaseURL:                  readEnv("BASE_URL"),
 		ImageServerURL:           readEnv("IMAGE_SERVER_URL"),
@@ -141,7 +153,9 @@ func LoadServer() (*ServerConfig, error) {
 		IIIFStatusCacheTTL:       iiifStatusCacheTTL,
 	}
 	return cfg, checkRequired(
-		requireNonEmpty("DATABASE_URL", cfg.DatabaseURL),
+		requireNonEmpty("DB_NAME", dbName),
+		requireNonEmpty("DB_USER", dbUser),
+		requireNonEmpty("DB_PASSWORD", dbPassword),
 		requireNonEmpty("STORAGE_ROOT", cfg.StorageRoot),
 		requireNonEmpty("BASE_URL", cfg.BaseURL),
 		requireNonEmpty("IMAGE_SERVER_URL", cfg.ImageServerURL),
@@ -167,8 +181,19 @@ func LoadWorker() (*WorkerConfig, error) {
 		return nil, err
 	}
 
+	dbName := readEnv("DB_NAME")
+	dbUser := readEnv("DB_USER")
+	dbPassword := readEnv("DB_PASSWORD")
+
 	cfg := &WorkerConfig{
-		DatabaseURL:          readEnv("DATABASE_URL"),
+		DatabaseURL: buildDatabaseURL(
+			envWithDefault("DB_HOST", "localhost"),
+			envWithDefault("DB_PORT", "5432"),
+			dbName,
+			dbUser,
+			dbPassword,
+			envWithDefault("DB_SSLMODE", "disable"),
+		),
 		StorageRoot:          readEnv("STORAGE_ROOT"),
 		PollInterval:         pollInterval,
 		VipsTileWidth:        vipsTileWidth,
@@ -176,7 +201,9 @@ func LoadWorker() (*WorkerConfig, error) {
 		MaxConversionRetries: maxConversionRetries,
 	}
 	return cfg, checkRequired(
-		requireNonEmpty("DATABASE_URL", cfg.DatabaseURL),
+		requireNonEmpty("DB_NAME", dbName),
+		requireNonEmpty("DB_USER", dbUser),
+		requireNonEmpty("DB_PASSWORD", dbPassword),
 		requireNonEmpty("STORAGE_ROOT", cfg.StorageRoot),
 	)
 }
@@ -278,4 +305,20 @@ func loadSessionKey() ([]byte, error) {
 		return nil, fmt.Errorf("env SESSION_KEY: must be at least 32 bytes, got %d", len(key))
 	}
 	return key, nil
+}
+
+// buildDatabaseURL assembles a postgres:// DSN from its component parts.
+// url.UserPassword handles correct percent-encoding of passwords that contain
+// special characters such as @, /, or spaces.
+func buildDatabaseURL(host, port, name, user, password, sslMode string) string {
+	dbURL := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(user, password),
+		Host:   host + ":" + port,
+		Path:   "/" + name,
+	}
+	query := dbURL.Query()
+	query.Set("sslmode", sslMode)
+	dbURL.RawQuery = query.Encode()
+	return dbURL.String()
 }
