@@ -23,9 +23,10 @@ linters:
       - path: "_test\\.go"
         linters:
           - errcheck
-      # SA1019: feature/s3/manager is marked deprecated in favour of
-      # feature/s3/transfermanager, which is still a preview package and not
-      # yet stable enough to depend on. Suppress until the replacement ships.
+      # The AWS S3 upload helper we use (feature/s3/manager) has been flagged
+      # as "old — use the new one instead". The new one (transfermanager) is
+      # not finished yet and not safe to use in production. We'll switch once
+      # it is released. Until then, silence the warning so CI stays green.
       - linters:
           - staticcheck
         text: "feature/s3/manager"
