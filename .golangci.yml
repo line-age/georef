@@ -23,3 +23,9 @@ linters:
       - path: "_test\\.go"
         linters:
           - errcheck
+      # SA1019: feature/s3/manager is marked deprecated in favour of
+      # feature/s3/transfermanager, which is still a preview package and not
+      # yet stable enough to depend on. Suppress until the replacement ships.
+      - linters:
+          - staticcheck
+        text: "feature/s3/manager"

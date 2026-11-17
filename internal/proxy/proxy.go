@@ -60,7 +60,9 @@ func New(cfg Config) *Proxy {
 // ServeInfoJSON fetches info.json from upstreamURL, rewrites the @id field
 // to publicIIIFBaseURL (the external URL the client will use to request tiles),
 // then writes the modified document to w.
-func (imageProxy *Proxy) ServeInfoJSON(w http.ResponseWriter, r *http.Request, upstreamURL, publicIIIFBaseURL string) error {
+// cacheControl, when non-empty, overrides the upstream Cache-Control header
+// (e.g. "public" for open sheets, "private" when read-login is on).
+func (imageProxy *Proxy) ServeInfoJSON(w http.ResponseWriter, r *http.Request, upstreamURL, publicIIIFBaseURL, cacheControl string) error {
 	upstreamReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL, nil)
 	if err != nil {
 		return err
@@ -88,6 +90,9 @@ func (imageProxy *Proxy) ServeInfoJSON(w http.ResponseWriter, r *http.Request, u
 	}
 
 	copyResponseHeaders(w, upstreamResp)
+	if cacheControl != "" {
+		w.Header().Set("Cache-Control", cacheControl)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(rewritten) //nolint:errcheck
@@ -95,7 +100,8 @@ func (imageProxy *Proxy) ServeInfoJSON(w http.ResponseWriter, r *http.Request, u
 }
 
 // ServeTile streams the upstream tile response to w without buffering the body.
-func (imageProxy *Proxy) ServeTile(w http.ResponseWriter, r *http.Request, upstreamURL string) error {
+// cacheControl, when non-empty, overrides the upstream Cache-Control header.
+func (imageProxy *Proxy) ServeTile(w http.ResponseWriter, r *http.Request, upstreamURL, cacheControl string) error {
 	upstreamReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL, nil)
 	if err != nil {
 		return err
@@ -112,6 +118,9 @@ func (imageProxy *Proxy) ServeTile(w http.ResponseWriter, r *http.Request, upstr
 	}
 
 	copyResponseHeaders(w, upstreamResp)
+	if cacheControl != "" {
+		w.Header().Set("Cache-Control", cacheControl)
+	}
 	w.WriteHeader(http.StatusOK)
 	if _, err := io.Copy(w, upstreamResp.Body); err != nil {
 		return ErrStreamInterrupted{Cause: err}

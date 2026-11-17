@@ -26,6 +26,13 @@ const (
 	logMsgServerShutdown = "server shutting down"
 )
 
+func selectStore(ctx context.Context, backend, root string, s3cfg storage.S3Config) (storage.Store, error) {
+	if backend == "s3" {
+		return storage.NewS3Store(ctx, s3cfg)
+	}
+	return storage.NewLocalStore(root), nil
+}
+
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
@@ -46,7 +53,15 @@ func main() {
 	defer pool.Close()
 
 	sheets := sheet.NewRepository(pool)
-	store := storage.NewLocalStore(cfg.StorageRoot)
+	appStore, err := selectStore(ctx, cfg.StorageBackend, cfg.StorageRoot, storage.S3Config{
+		Bucket:   cfg.S3Bucket,
+		Region:   cfg.S3Region,
+		Endpoint: cfg.S3Endpoint,
+	})
+	if err != nil {
+		slog.Error("connect to storage", "err", err)
+		os.Exit(1)
+	}
 	imageProxy := proxy.New(proxy.Config{
 		MaxIdleConns:        cfg.ProxyMaxIdleConns,
 		MaxIdleConnsPerHost: cfg.ProxyMaxIdleConnsPerHost,
@@ -62,8 +77,10 @@ func main() {
 		CallbackURL:        cfg.BaseURL + "/auth/callback",
 		SecureCookies:      cfg.SecureCookies,
 		SessionMaxAge:      cfg.SessionMaxAge,
+		ReadLoginRequired:  cfg.ReadLoginRequired,
+		ServiceCredential:  cfg.ServiceCredential,
 	})
-	apiHandler := api.New(sheets, store, imageProxy, authenticator, api.Config{
+	apiHandler := api.New(sheets, appStore, imageProxy, authenticator, api.Config{
 		BaseURL:              cfg.BaseURL,
 		ImageServerURL:       cfg.ImageServerURL,
 		IIIFImageAPIVersion:  cfg.IIIFImageAPIVersion,

@@ -67,7 +67,7 @@ func (handler *Handler) serveInfoJSON(w http.ResponseWriter, r *http.Request) {
 	publicIIIFBase := handler.baseURL + "/iiif/" + id
 	upstreamURL := handler.imageInfoURL(id)
 
-	if err := handler.imageProxy.ServeInfoJSON(w, r, upstreamURL, publicIIIFBase); err != nil {
+	if err := handler.imageProxy.ServeInfoJSON(w, r, upstreamURL, publicIIIFBase, handler.iiifCacheControl()); err != nil {
 		slog.ErrorContext(r.Context(), logMsgProxyInfoFailed, "id", id, "err", err)
 		writeError(w, http.StatusBadGateway, "image server unavailable")
 	}
@@ -86,7 +86,7 @@ func (handler *Handler) serveTile(w http.ResponseWriter, r *http.Request) {
 	tileSuffix := chi.URLParam(r, "*")
 	upstreamURL := handler.imageTileURL(id, tileSuffix)
 
-	if err := handler.imageProxy.ServeTile(w, r, upstreamURL); err != nil {
+	if err := handler.imageProxy.ServeTile(w, r, upstreamURL, handler.iiifCacheControl()); err != nil {
 		slog.ErrorContext(r.Context(), logMsgProxyTileFailed, "id", id, "err", err)
 		var streamErr proxy.ErrStreamInterrupted
 		if !errors.As(err, &streamErr) {

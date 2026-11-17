@@ -14,7 +14,11 @@ import (
 // Loaded once at startup via LoadServer; never read from env after that.
 type ServerConfig struct {
 	DatabaseURL             string
-	StorageRoot             string
+	StorageBackend          string // "filesystem" (default) or "s3"
+	StorageRoot             string // filesystem root; required when StorageBackend = "filesystem"
+	S3Bucket                string // required when StorageBackend = "s3"
+	S3Region                string // S3 region; default "us-east-1"
+	S3Endpoint              string // optional custom endpoint for S3-compatible services
 	BaseURL                 string
 	ImageServerURL          string        // internal URL of the IIIF image server, not reachable from outside
 	IIIFImageAPIVersion     int           // IIIF Image API version served by the image server; default 2
@@ -38,13 +42,19 @@ type ServerConfig struct {
 	SessionKey         []byte        // parsed from SESSION_KEY (base64); at least 32 bytes when auth is enabled
 	SecureCookies      bool          // set false for local HTTP development; default true
 	SessionMaxAge      int           // session lifetime in seconds; default 604800 (7 days)
+	ReadLoginRequired  bool          // gate IIIF endpoints; default false
+	ServiceCredential  string        // bearer token for machine-to-machine IIIF access
 }
 
 // WorkerConfig holds all configuration for the conversion worker process.
 // Loaded once at startup via LoadWorker; never read from env after that.
 type WorkerConfig struct {
 	DatabaseURL          string
-	StorageRoot          string
+	StorageBackend       string // "filesystem" (default) or "s3"
+	StorageRoot          string // filesystem root; required when StorageBackend = "filesystem"
+	S3Bucket             string // required when StorageBackend = "s3"
+	S3Region             string // S3 region; default "us-east-1"
+	S3Endpoint           string // optional custom endpoint for S3-compatible services
 	PollInterval         time.Duration
 	VipsTileWidth        int
 	VipsTileHeight       int
@@ -129,7 +139,11 @@ func LoadServer() (*ServerConfig, error) {
 			dbPassword,
 			envWithDefault("DB_SSLMODE", "disable"),
 		),
+		StorageBackend:           envWithDefault("STORAGE_BACKEND", "filesystem"),
 		StorageRoot:              readEnv("STORAGE_ROOT"),
+		S3Bucket:                 readEnv("S3_BUCKET"),
+		S3Region:                 envWithDefault("S3_REGION", "us-east-1"),
+		S3Endpoint:               readEnv("S3_ENDPOINT"),
 		BaseURL:                  readEnv("BASE_URL"),
 		ImageServerURL:           readEnv("IMAGE_SERVER_URL"),
 		IIIFImageAPIVersion:      iiifImageAPIVersion,
@@ -151,15 +165,22 @@ func LoadServer() (*ServerConfig, error) {
 		SecureCookies:            envWithDefault("SECURE_COOKIES", "true") != "false",
 		SessionMaxAge:            sessionMaxAge,
 		IIIFStatusCacheTTL:       iiifStatusCacheTTL,
+		ReadLoginRequired:        envWithDefault("READ_LOGIN_REQUIRED", "false") == "true",
+		ServiceCredential:        readEnv("SERVICE_CREDENTIAL"),
 	}
-	return cfg, checkRequired(
+	required := []error{
 		requireNonEmpty("DB_NAME", dbName),
 		requireNonEmpty("DB_USER", dbUser),
 		requireNonEmpty("DB_PASSWORD", dbPassword),
-		requireNonEmpty("STORAGE_ROOT", cfg.StorageRoot),
 		requireNonEmpty("BASE_URL", cfg.BaseURL),
 		requireNonEmpty("IMAGE_SERVER_URL", cfg.ImageServerURL),
-	)
+	}
+	if cfg.StorageBackend == "s3" {
+		required = append(required, requireNonEmpty("S3_BUCKET", cfg.S3Bucket))
+	} else {
+		required = append(required, requireNonEmpty("STORAGE_ROOT", cfg.StorageRoot))
+	}
+	return cfg, checkRequired(required...)
 }
 
 // LoadWorker reads and validates the worker configuration from the environment.
@@ -194,18 +215,27 @@ func LoadWorker() (*WorkerConfig, error) {
 			dbPassword,
 			envWithDefault("DB_SSLMODE", "disable"),
 		),
+		StorageBackend:       envWithDefault("STORAGE_BACKEND", "filesystem"),
 		StorageRoot:          readEnv("STORAGE_ROOT"),
+		S3Bucket:             readEnv("S3_BUCKET"),
+		S3Region:             envWithDefault("S3_REGION", "us-east-1"),
+		S3Endpoint:           readEnv("S3_ENDPOINT"),
 		PollInterval:         pollInterval,
 		VipsTileWidth:        vipsTileWidth,
 		VipsTileHeight:       vipsTileHeight,
 		MaxConversionRetries: maxConversionRetries,
 	}
-	return cfg, checkRequired(
+	required := []error{
 		requireNonEmpty("DB_NAME", dbName),
 		requireNonEmpty("DB_USER", dbUser),
 		requireNonEmpty("DB_PASSWORD", dbPassword),
-		requireNonEmpty("STORAGE_ROOT", cfg.StorageRoot),
-	)
+	}
+	if cfg.StorageBackend == "s3" {
+		required = append(required, requireNonEmpty("S3_BUCKET", cfg.S3Bucket))
+	} else {
+		required = append(required, requireNonEmpty("STORAGE_ROOT", cfg.StorageRoot))
+	}
+	return cfg, checkRequired(required...)
 }
 
 // readEnv returns the value of an environment variable, or an empty string if unset.

@@ -29,14 +29,12 @@ func (handler *Handler) Routes() http.Handler {
 	router.With(handler.authenticator.RequireWrite).Patch("/sheets/{id}", handler.updateSheet)
 	router.With(handler.authenticator.RequireWrite).Delete("/sheets/{id}", handler.deleteSheet)
 
-	// IIIF Presentation API
-	router.Get("/iiif/{id}/manifest", handler.serveManifest)
-
-	// IIIF Image API — proxied to the internal image server.
-	// info.json is handled separately because the @id field must be rewritten
-	// to the public URL before the response is forwarded to the client.
-	router.Get("/iiif/{id}/info.json", handler.serveInfoJSON)
-	router.Get("/iiif/{id}/*", handler.serveTile)
+	// IIIF Presentation API and Image API.
+	// RequireRead is a no-op when READ_LOGIN_REQUIRED is false (the default).
+	// When enabled it checks for a valid session or Authorization: Bearer token.
+	router.With(handler.authenticator.RequireRead).Get("/iiif/{id}/manifest", handler.serveManifest)
+	router.With(handler.authenticator.RequireRead).Get("/iiif/{id}/info.json", handler.serveInfoJSON)
+	router.With(handler.authenticator.RequireRead).Get("/iiif/{id}/*", handler.serveTile)
 
 	return router
 }

@@ -102,6 +102,16 @@ func (handler *Handler) toSheetResponse(sheetRecord *model.Sheet) sheetResponse 
 	}
 }
 
+// iiifCacheControl returns the Cache-Control value for IIIF responses.
+// When read-login is enabled, tiles and info.json are marked private so CDNs
+// do not cache restricted content. When read-login is off, they are public.
+func (handler *Handler) iiifCacheControl() string {
+	if handler.authenticator.ReadLoginEnabled() {
+		return "private"
+	}
+	return "public"
+}
+
 // imageInfoURL returns the info.json URL on the image server for a given sheet ID.
 // The identifier is the bare ULID. Cantaloupe is configured with
 // path_prefix=/data/storage/sheets/ and path_suffix=/pyramid.tif, so it resolves

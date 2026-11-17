@@ -5,8 +5,10 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -27,6 +29,8 @@ const (
 	msgTokenExchangeFailed = "token exchange failed"
 	msgTeamCheckFailed     = "team membership check failed"
 
+	bearerPrefix = "Bearer "
+
 	githubTeamsURL = "https://api.github.com/user/teams?per_page=100"
 )
 
@@ -39,16 +43,20 @@ type Config struct {
 	CallbackURL        string   // e.g. "https://maps.example.com/auth/callback"
 	SecureCookies      bool     // set false only in local HTTP development
 	SessionMaxAge      int      // session lifetime in seconds; 0 means use defaultSessionMaxAge (7 days)
+	ReadLoginRequired  bool     // when true, IIIF endpoints require a session or service credential
+	ServiceCredential  string   // bearer token for machine-to-machine IIIF access (e.g. Allmaps tile server)
 }
 
 // Authenticator handles the GitHub OAuth2 flow, session cookies, and the write-auth middleware.
 // A nil or disabled Authenticator is a passthrough: RequireWrite allows all requests.
 type Authenticator struct {
-	disabled     bool
-	oauthConfig  *oauth2.Config
-	sessionStore sessions.Store
-	allowedTeams map[string]bool
-	teamClient   githubTeamClient
+	disabled          bool
+	oauthConfig       *oauth2.Config
+	sessionStore      sessions.Store
+	allowedTeams      map[string]bool
+	teamClient        githubTeamClient
+	readLoginRequired bool
+	serviceCredential string
 }
 
 // githubTeamClient fetches the teams an OAuth token holder belongs to.
@@ -102,10 +110,12 @@ func New(cfg Config) *Authenticator {
 	}
 
 	return &Authenticator{
-		oauthConfig:  oauthCfg,
-		sessionStore: cookieStore,
-		allowedTeams: allowedTeams,
-		teamClient:   &httpTeamClient{oauthConfig: oauthCfg},
+		oauthConfig:       oauthCfg,
+		sessionStore:      cookieStore,
+		allowedTeams:      allowedTeams,
+		teamClient:        &httpTeamClient{oauthConfig: oauthCfg},
+		readLoginRequired: cfg.ReadLoginRequired,
+		serviceCredential: cfg.ServiceCredential,
 	}
 }
 
@@ -166,7 +176,10 @@ func (authenticator *Authenticator) CallbackHandler(w http.ResponseWriter, r *ht
 		slug := team.Organization.Login + "/" + team.Slug
 		if authenticator.allowedTeams[slug] {
 			session.Values[sessionKeyAuth] = true
-			session.Save(r, w) //nolint:errcheck
+			if err := session.Save(r, w); err != nil {
+				http.Error(w, "session error", http.StatusInternalServerError)
+				return
+			}
 			http.Redirect(w, r, "/", http.StatusFound)
 			return
 		}
@@ -196,6 +209,50 @@ func (authenticator *Authenticator) RequireWrite(next http.Handler) http.Handler
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session, err := authenticator.sessionStore.Get(r, sessionName)
+		if err != nil || session.IsNew {
+			writeAuthError(w, http.StatusUnauthorized, msgUnauthorized)
+			return
+		}
+		if authenticated, ok := session.Values[sessionKeyAuth].(bool); !ok || !authenticated {
+			writeAuthError(w, http.StatusUnauthorized, msgUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ReadLoginEnabled reports whether IIIF read access requires authentication.
+// Returns false when auth is disabled (dev mode) regardless of the config flag.
+func (authenticator *Authenticator) ReadLoginEnabled() bool {
+	return !authenticator.disabled && authenticator.readLoginRequired
+}
+
+// RequireRead is middleware that gates IIIF read access when READ_LOGIN_REQUIRED is true.
+// A request passes when:
+//   - read-login is off, or auth is disabled
+//   - the request carries Authorization: Bearer <SERVICE_CREDENTIAL>
+//   - the request has a valid authenticated session
+//
+// All other requests receive 401.
+func (authenticator *Authenticator) RequireRead(next http.Handler) http.Handler {
+	if authenticator.disabled || !authenticator.readLoginRequired {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Service credential: machine-to-machine access (e.g. Allmaps tile server).
+		if authenticator.serviceCredential != "" {
+			authHeader := r.Header.Get("Authorization")
+			if strings.HasPrefix(authHeader, bearerPrefix) {
+				providedToken := authHeader[len(bearerPrefix):]
+				if subtle.ConstantTimeCompare([]byte(providedToken), []byte(authenticator.serviceCredential)) == 1 {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+		}
+
+		// Browser session.
 		session, err := authenticator.sessionStore.Get(r, sessionName)
 		if err != nil || session.IsNew {
 			writeAuthError(w, http.StatusUnauthorized, msgUnauthorized)
@@ -240,6 +297,10 @@ func (client *httpTeamClient) fetchTeamsPage(ctx context.Context, httpClient *ht
 		return nil, "", err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("github teams API: status %d", resp.StatusCode)
+	}
 
 	var teams []githubTeam
 	if err := json.NewDecoder(resp.Body).Decode(&teams); err != nil {
