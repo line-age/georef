@@ -1,0 +1,89 @@
+{{- $fn := include "georef.fullname" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fn }}-cantaloupe
+  labels:
+    {{- include "georef.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cantaloupe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "georef.selector" (dict "root" . "component" "cantaloupe") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "georef.labels" . | nindent 8 }}
+        app.kubernetes.io/component: cantaloupe
+    spec:
+      # The image runs as its own named user and writes its config at start, so it gets no
+      # runAsUser; it reads storage through the files' world-read bit (0644, dirs 0755).
+      securityContext:
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: cantaloupe
+          image: "{{ .Values.cantaloupe.image.repository }}:{{ .Values.cantaloupe.image.tag }}"
+          imagePullPolicy: {{ .Values.cantaloupe.image.pullPolicy }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            - name: CANTALOUPE_SOURCE_STATIC
+              value: FilesystemSource
+            # prefix + sheet id + suffix = /data/storage/sheets/{id}/pyramid.tif
+            - name: CANTALOUPE_FILESYSTEMSOURCE_BASICLOOKUPSTRATEGY_PATH_PREFIX
+              value: /data/storage/sheets/
+            - name: CANTALOUPE_FILESYSTEMSOURCE_BASICLOOKUPSTRATEGY_PATH_SUFFIX
+              value: /pyramid.tif
+            {{- include "georef.envMap" .Values.cantaloupe.env | nindent 12 }}
+          ports:
+            - {name: http, containerPort: 8182}
+          startupProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 20
+          resources: {{- toYaml .Values.cantaloupe.resources | nindent 12 }}
+          volumeMounts:
+            - {name: storage, mountPath: /data/storage, readOnly: true}
+      volumes:
+        - name: storage
+          persistentVolumeClaim: {claimName: {{ include "georef.claim" . }}, readOnly: true}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fn }}-cantaloupe
+  labels:
+    {{- include "georef.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cantaloupe
+spec:
+  selector:
+    {{- include "georef.selector" (dict "root" . "component" "cantaloupe") | nindent 4 }}
+  ports:
+    - {name: http, port: 8182, targetPort: http}
+{{- if .Values.cantaloupe.networkPolicy }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fn }}-cantaloupe
+  labels:
+    {{- include "georef.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "georef.selector" (dict "root" . "component" "cantaloupe") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "georef.selector" (dict "root" . "component" "server") | nindent 14 }}
+      ports:
+        - {port: http}
+{{- end }}

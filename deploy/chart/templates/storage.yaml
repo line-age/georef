@@ -1,0 +1,18 @@
+{{- if not .Values.storage.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "georef.claim" . }}
+  labels:
+    {{- include "georef.labels" . | nindent 4 }}
+  annotations:
+    {{- include "georef.keep" . | nindent 4 }}
+spec:
+  accessModes: [{{ .Values.storage.accessMode }}]
+  {{- with .Values.storage.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.size }}
+{{- end }}

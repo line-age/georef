@@ -1,0 +1,6 @@
+georef {{ .Values.image.tag }} at {{ .Values.baseURL }}
+{{- if not .Values.auth.enabled }}
+
+WARNING: authentication is DISABLED. Anyone who can reach {{ .Values.baseURL }} can upload,
+edit and delete sheets. Set auth.enabled with a GitHub OAuth secret before exposing it.
+{{- end }}

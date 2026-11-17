@@ -1,0 +1,27 @@
+{{- if .Values.database.cnpg.enabled }}
+{{- $c := .Values.database.cnpg }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "georef.fullname" . }}-db
+  labels:
+    {{- include "georef.labels" . | nindent 4 }}
+  annotations:
+    {{- include "georef.keep" . | nindent 4 }}
+spec:
+  instances: {{ $c.instances }}
+  {{- with $c.imageName }}
+  imageName: {{ . }}
+  {{- end }}
+  # The operator creates database georef owned by georef, and the <name>-app secret with
+  # host, port, dbname, username and password, which the server and worker read.
+  bootstrap:
+    initdb:
+      database: georef
+      owner: georef
+  storage:
+    size: {{ $c.size }}
+    {{- with $c.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+{{- end }}
