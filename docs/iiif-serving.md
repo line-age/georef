@@ -15,7 +15,11 @@ IIIF request — tile, info.json, and manifest.
 
 ```mermaid
 flowchart TD
-    A(["client requests /iiif/:id/..."]) --> B["look up sheet\nby ID in Postgres"]
+    A(["client requests /iiif/:id/..."]) --> AA{READ_LOGIN_REQUIRED?}
+    AA -->|yes| AB{valid session\nor service credential?}
+    AB -->|no| AC[401 Unauthorized]
+    AB -->|yes| B
+    AA -->|no| B["look up sheet\nby ID in Postgres"]
     B --> C{sheet found?}
     C -->|no| D[404 Not Found]
     C -->|yes| E{status?}
@@ -24,6 +28,13 @@ flowchart TD
     E -->|failed| H[404 Not Found]
     E -->|ready| I["continue to\nthe specific flow below"]
 ```
+
+### Read login
+
+The `RequireRead` middleware runs before the status check. When
+`READ_LOGIN_REQUIRED=true`, a request with neither a valid GitHub session nor an
+`Authorization: Bearer <SERVICE_CREDENTIAL>` header is rejected with `401` before
+the sheet is ever looked up. See `docs/auth.md` for the full read-login design.
 
 ### Why the same check for every IIIF request
 
@@ -101,6 +112,18 @@ identifier  : 01JEMKR9VXYZ0000000000000
 Using the bare ULID avoids slashes in the identifier entirely. Jetty (Cantaloupe's
 embedded server) rejects `%2F` in URL path segments as a path-traversal defence,
 so any identifier containing a slash would return 403.
+
+### Cache-Control
+
+The proxy overrides the upstream `Cache-Control` header on every IIIF response:
+
+| `READ_LOGIN_REQUIRED` | `Cache-Control` sent to client |
+|---|---|
+| `false` (default) | `public` — CDNs may cache freely |
+| `true` | `private` — CDNs must not cache; each viewer fetches directly |
+
+This is set unconditionally so the value is always explicit, regardless of what
+Cantaloupe returns.
 
 ### Connection reuse
 

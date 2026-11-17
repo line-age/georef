@@ -23,6 +23,13 @@ const (
 	logMsgWorkerStopped  = "worker stopped"
 )
 
+func selectStore(ctx context.Context, backend, root string, s3cfg storage.S3Config) (storage.Store, error) {
+	if backend == "s3" {
+		return storage.NewS3Store(ctx, s3cfg)
+	}
+	return storage.NewLocalStore(root), nil
+}
+
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
@@ -43,12 +50,20 @@ func main() {
 	defer pool.Close()
 
 	sheets := sheet.NewRepository(pool)
-	store := storage.NewLocalStore(cfg.StorageRoot)
+	appStore, err := selectStore(ctx, cfg.StorageBackend, cfg.StorageRoot, storage.S3Config{
+		Bucket:   cfg.S3Bucket,
+		Region:   cfg.S3Region,
+		Endpoint: cfg.S3Endpoint,
+	})
+	if err != nil {
+		slog.Error("connect to storage", "err", err)
+		os.Exit(1)
+	}
 	converter := convert.VipsConverter{
 		TileWidth:  cfg.VipsTileWidth,
 		TileHeight: cfg.VipsTileHeight,
 	}
-	conversionWorker := worker.New(sheets, store, converter, cfg.PollInterval, cfg.MaxConversionRetries)
+	conversionWorker := worker.New(sheets, appStore, converter, cfg.PollInterval, cfg.MaxConversionRetries)
 
 	slog.Info(logMsgWorkerStarting, "poll_interval", cfg.PollInterval)
 	conversionWorker.Run(ctx)

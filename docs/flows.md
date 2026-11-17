@@ -41,8 +41,13 @@ flowchart TD
   re-authenticates and the team membership is re-checked.
 - **`RequireWrite` middleware** checks only the session flag — no Postgres hit,
   no GitHub API call per request.
-- **Disabled mode** — when `GITHUB_CLIENT_ID` is unset, `RequireWrite` is a
-  passthrough and the `/auth/*` routes still exist but redirect immediately to
+- **`RequireRead` middleware** gates IIIF endpoints when `READ_LOGIN_REQUIRED=true`.
+  It accepts the same session cookie, or an `Authorization: Bearer <SERVICE_CREDENTIAL>`
+  header for server-side callers that cannot use a browser session. When
+  `READ_LOGIN_REQUIRED` is false (the default), `RequireRead` is a passthrough.
+  See `docs/auth.md` for the full read-login design.
+- **Disabled mode** — when `GITHUB_CLIENT_ID` is unset, both `RequireWrite` and
+  `RequireRead` are passthroughs and the `/auth/*` routes redirect immediately to
   `/`.
 
 ---

@@ -141,6 +141,25 @@ server, which would reject identifiers containing encoded slashes.
 Pyramid TIFFs are written with `0644` permissions so Cantaloupe (running as a
 different UID in the container) can read them.
 
+## Storage configuration
+
+The service and worker share a storage backend selected by `STORAGE_BACKEND`.
+
+| Env var | Default | Description |
+|---|---|---|
+| `STORAGE_BACKEND` | `filesystem` | `filesystem` or `s3` |
+| `STORAGE_ROOT` | — | Required when `STORAGE_BACKEND=filesystem`; root directory for all sheet files |
+| `S3_BUCKET` | — | Required when `STORAGE_BACKEND=s3`; bucket name |
+| `S3_REGION` | `us-east-1` | AWS region or MinIO-compatible region string |
+| `S3_ENDPOINT` | — | Custom endpoint URL for S3-compatible services (e.g. MinIO); omit for real AWS |
+
+Credentials for the S3 backend are resolved via the standard AWS credential chain:
+`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars, shared credentials file, or
+instance metadata. These are never set in this repository.
+
+When `STORAGE_BACKEND=s3`, `PyramidalTIFFPath` returns an `s3://` URI. Cantaloupe must be
+configured to use `S3Source` and given the same bucket and credentials out-of-band.
+
 ## Open
 
 - Whether Cantaloupe caches a `404` for an identifier and keeps serving it after the file

@@ -7,13 +7,14 @@ How write access is controlled and how the GitHub OAuth flow works.
 | Action | Requirement |
 |---|---|
 | `GET /sheets`, `GET /sheets/{id}` | None — public |
-| `GET /iiif/…` | None by default; optional read gate in Stage 11 |
+| `GET /iiif/…` | None by default; GitHub session or service credential when `READ_LOGIN_REQUIRED=true` |
 | `POST /sheets` | GitHub session in an allowed team |
 | `PATCH /sheets/{id}` | GitHub session in an allowed team |
 | `DELETE /sheets/{id}` | GitHub session in an allowed team |
 | `GET /` (upload form) | None — form is public; upload triggers auth check |
 
-Write endpoints are gated by the `RequireWrite` middleware. Reads are open.
+Write endpoints are gated by the `RequireWrite` middleware. IIIF endpoints are gated by
+`RequireRead` when `READ_LOGIN_REQUIRED=true`; otherwise `RequireRead` is a passthrough.
 
 ## GitHub OAuth flow
 
@@ -62,6 +63,26 @@ for example `lineage/editors,lineage/admins`. On callback:
 3. If any entry is in `GITHUB_ALLOWED_TEAMS`, the user is granted access.
 4. Otherwise `403 Forbidden` is returned and no session is created.
 
+## Read login
+
+By default IIIF reads are public. When `READ_LOGIN_REQUIRED=true`, every request
+to `GET /iiif/…` must pass one of:
+
+1. **GitHub session** — a cookie from a completed OAuth login (same session used
+   for write access). The session must have `authenticated=true`.
+2. **Service credential** — `Authorization: Bearer <SERVICE_CREDENTIAL>` header.
+   The token is compared with `crypto/subtle.ConstantTimeCompare` to prevent
+   timing attacks. This is intended for server-side callers such as the Allmaps
+   Tile Server that cannot go through a browser login.
+
+A request that passes neither receives `401 Unauthorized`.
+
+When auth is entirely disabled (`GITHUB_CLIENT_ID` unset), `READ_LOGIN_REQUIRED`
+has no effect — `RequireRead` is a passthrough regardless.
+
+When read login is on, IIIF responses carry `Cache-Control: private` so CDNs do
+not cache restricted content. When off, they carry `Cache-Control: public`.
+
 ## Configuration
 
 | Env var | Required | Description |
@@ -72,6 +93,8 @@ for example `lineage/editors,lineage/admins`. On callback:
 | `SESSION_KEY` | When auth enabled | Base64-encoded signing key (≥ 32 bytes) |
 | `SESSION_MAX_AGE` | No | Session lifetime in seconds; default `604800` (7 days) |
 | `SECURE_COOKIES` | No | Set `false` for local development over HTTP; default `true` |
+| `READ_LOGIN_REQUIRED` | No | Set `true` to require auth on all IIIF endpoints; default `false` |
+| `SERVICE_CREDENTIAL` | When `READ_LOGIN_REQUIRED=true` | Bearer token for server-side IIIF access |
 
 None of these values belong in the repository. They are set in the deployment
 environment only.
@@ -81,6 +104,7 @@ environment only.
 When `GITHUB_CLIENT_ID` is not set:
 
 - `RequireWrite` is a passthrough — all write requests succeed without a session.
+- `RequireRead` is a passthrough — `READ_LOGIN_REQUIRED` has no effect.
 - `/auth/login` and `/auth/callback` redirect immediately to `/`.
 - `/auth/logout` clears any existing session and redirects to `/`.
 

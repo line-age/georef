@@ -148,10 +148,11 @@ fixed pattern. They are stored explicitly for two reasons:
    what the current code would compute. If a file is ever missing, the row tells
    you exactly where to look.
 
-### Why a partial index on `status IN ('processing', 'failed')`
+### Why a partial index on `status = 'processing'`
 
-The worker's claim query filters on `status IN ('processing', 'failed')`. Once a
-sheet reaches `ready` or `deleted` it is never claimed again. A partial index
-covering only the claimable rows stays small and fast regardless of how large the
-table grows; a full index on the `status` column would include all historical rows
-and offer less benefit per page read.
+The worker's claim query filters on `status = 'processing'`. Once a sheet reaches
+`ready` or `deleted` it is never claimed again, and `failed` sheets are excluded
+from the queue by the `retry_count < MAX` guard in the query rather than by
+status. A partial index covering only `processing` rows stays small and fast
+regardless of how large the table grows; a full index on the `status` column
+would include all historical rows and offer less benefit per page read.

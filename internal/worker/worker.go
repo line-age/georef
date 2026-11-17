@@ -4,9 +4,9 @@ package worker
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/line-age/georef/internal/convert"
@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	errMsgGetOriginalScanPath = "original scan path"
-	errMsgCreateTempFile      = "create temp file"
-	errMsgOpenConvertedFile   = "open converted file"
-	errMsgSavePyramidalTIFF   = "save pyramidal tiff"
+	errMsgOpenOriginalScan  = "open original scan"
+	errMsgCopyOriginalScan  = "copy original scan to temp"
+	errMsgCreateTempFile    = "create temp file"
+	errMsgOpenConvertedFile = "open converted file"
+	errMsgSavePyramidalTIFF = "save pyramidal tiff"
 
 	logMsgProcessNextFailed = "worker: process next"
 	logMsgSheetConverted    = "worker: sheet converted"
@@ -78,29 +79,45 @@ func (worker *Worker) Run(ctx context.Context) {
 // It runs inside the sheet's database transaction so the row lock is held
 // for the duration of the conversion.
 func (worker *Worker) convertSheet(ctx context.Context, sheet *model.Sheet) (pyramidPath string, err error) {
-	originalPath, err := worker.store.OriginalScanPath(ctx, sheet.ID)
+	// Stream the original scan to a local temp file so vips always receives a
+	// local path. For the filesystem backend OpenOriginalScan opens the file
+	// in place; for the S3 backend it downloads from the bucket. Both cases
+	// land at a local path the vips subprocess can read.
+	originalReader, err := worker.store.OpenOriginalScan(ctx, sheet.ID)
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", errMsgGetOriginalScanPath, err)
+		return "", fmt.Errorf("%s: %w", errMsgOpenOriginalScan, err)
 	}
+	defer originalReader.Close() //nolint:errcheck
 
-	// vips writes to a file path, so we give it a temp file and stream the
-	// result into the storage layer once conversion succeeds.
-	// Place the temp file in the same directory as the original scan so it
-	// lands on the same filesystem as storage, keeping the subsequent copy
-	// on-disk rather than through a RAM-backed tmpfs.
-	tempFile, err := os.CreateTemp(filepath.Dir(originalPath), "pyramid-*.tif")
+	srcFile, err := os.CreateTemp("", "original-*.scan")
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", errMsgCreateTempFile, err)
 	}
-	tempPath := tempFile.Name()
-	tempFile.Close()
-	defer os.Remove(tempPath) //nolint:errcheck
+	srcPath := srcFile.Name()
+	defer os.Remove(srcPath) //nolint:errcheck
 
-	if err := worker.converter.Convert(ctx, originalPath, tempPath); err != nil {
+	if _, err := io.Copy(srcFile, originalReader); err != nil {
+		srcFile.Close() //nolint:errcheck
+		return "", fmt.Errorf("%s: %w", errMsgCopyOriginalScan, err)
+	}
+	if err := srcFile.Close(); err != nil {
+		return "", fmt.Errorf("%s: %w", errMsgCreateTempFile, err)
+	}
+
+	// vips writes to a file path; give it a second temp for the output.
+	dstFile, err := os.CreateTemp("", "pyramid-*.tif")
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", errMsgCreateTempFile, err)
+	}
+	dstPath := dstFile.Name()
+	dstFile.Close()
+	defer os.Remove(dstPath) //nolint:errcheck
+
+	if err := worker.converter.Convert(ctx, srcPath, dstPath); err != nil {
 		return "", err
 	}
 
-	pyramidFile, err := os.Open(tempPath)
+	pyramidFile, err := os.Open(dstPath)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", errMsgOpenConvertedFile, err)
 	}
