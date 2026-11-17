@@ -42,6 +42,18 @@ jobs:
       - name: Test
         run: go test -race -count=1 ./...
 
+  chart:
+    name: Chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+      # Placeholder values: the chart requires them, and real ones live with the deployment.
+      - name: Lint
+        run: helm lint deploy/chart --set baseURL=https://example.org --set image.tag=test
+      - name: Render
+        run: helm template georef deploy/chart --set baseURL=https://example.org --set image.tag=test > /dev/null
+
   image:
     name: Image (${{ matrix.target }})
     needs: [lint, test]
