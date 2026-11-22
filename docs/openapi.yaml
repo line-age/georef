@@ -22,6 +22,40 @@ paths:
               schema:
                 type: string
 
+  /docs:
+    get:
+      summary: API reference (Swagger UI)
+      description: |
+        Renders the interactive Swagger UI for this API. The UI loads the OpenAPI
+        spec from `GET /docs/openapi.yaml`. No authentication required.
+      responses:
+        "200":
+          description: Swagger UI HTML page.
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /docs/openapi.yaml:
+    get:
+      summary: OpenAPI specification
+      description: |
+        Returns the OpenAPI 3.0 specification for this API in YAML format.
+        The spec is embedded in the server binary at build time.
+        No authentication required.
+      responses:
+        "200":
+          description: OpenAPI spec in YAML format.
+          headers:
+            Cache-Control:
+              description: "public, max-age=300"
+              schema:
+                type: string
+          content:
+            application/yaml:
+              schema:
+                type: string
+
   /auth/login:
     get:
       summary: Begin GitHub OAuth login

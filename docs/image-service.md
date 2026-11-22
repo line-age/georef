@@ -43,6 +43,8 @@ flowchart LR
 | Request | Handled by | What happens |
 |---|---|---|
 | `GET /` | our service | Serves the browser upload form. No auth required. |
+| `GET /docs` | our service | Swagger UI — interactive API reference. No auth required. |
+| `GET /docs/openapi.yaml` | our service | Raw OpenAPI spec (YAML). Embedded in the binary at build time. No auth required. |
 | `GET /auth/login`, `/auth/callback`, `POST /auth/logout` | our service | GitHub OAuth flow and session management. See `docs/auth.md`. |
 | `POST /sheets` | our service | Upload. GitHub session required when auth is enabled. |
 | `GET /sheets`, `GET /sheets/{id}` | our service | List, search and read sheet records from Postgres. |
