@@ -47,20 +47,27 @@ type Annotation struct {
 
 // ImageBody is the image referenced by a painting annotation.
 type ImageBody struct {
-	ID      string         `json:"id"`
-	Type    string         `json:"type"`
-	Format  string         `json:"format"`
-	Width   int            `json:"width"`
-	Height  int            `json:"height"`
-	Service []ImageService `json:"service"`
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Format  string `json:"format"`
+	Width   int    `json:"width"`
+	Height  int    `json:"height"`
+	Service []any  `json:"service"`
 }
 
-// ImageService is a IIIF Image API v2 service descriptor embedded in an image body.
-// It uses @id/@type (the v2 key names) even inside a v3 manifest, per the IIIF spec
-// on embedding services from older API versions.
-type ImageService struct {
+// ImageServiceV2 is a IIIF Image API v2 service descriptor.
+// v2 uses @id and @type key names per the IIIF Image API v2 spec.
+type ImageServiceV2 struct {
 	ID      string `json:"@id"`
 	Type    string `json:"@type"`
+	Profile string `json:"profile"`
+}
+
+// ImageServiceV3 is a IIIF Image API v3 service descriptor.
+// v3 uses id and type key names (no @ prefix) per the IIIF Image API v3 spec.
+type ImageServiceV3 struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
 	Profile string `json:"profile"`
 }
 
@@ -76,6 +83,24 @@ const (
 	annotationMotivation = "painting"
 )
 
+// buildImageService returns the correct service descriptor struct for the given
+// IIIF Image API version. v2 uses @id/@type JSON keys and a full profile URL;
+// v3 uses id/type keys and a plain level string per the IIIF Image API v3 spec.
+func buildImageService(imageAPIVersion, imageAPILevel int, serviceID, serviceType string) any {
+	if imageAPIVersion >= 3 {
+		return ImageServiceV3{
+			ID:      serviceID,
+			Type:    serviceType,
+			Profile: fmt.Sprintf("level%d", imageAPILevel),
+		}
+	}
+	return ImageServiceV2{
+		ID:      serviceID,
+		Type:    serviceType,
+		Profile: fmt.Sprintf("http://iiif.io/api/image/%d/level%d.json", imageAPIVersion, imageAPILevel),
+	}
+}
+
 // Build constructs a IIIF Presentation v3 manifest for the given sheet.
 // publicBaseURL is the external root (e.g. "https://maps.example.com").
 // imageAPIVersion is the IIIF Image API version (e.g. 2).
@@ -86,7 +111,7 @@ func Build(sheet *model.Sheet, publicBaseURL string, imageAPIVersion, imageAPILe
 	canvasID := iiifBase + "/canvas/p1"
 
 	serviceType := fmt.Sprintf("ImageService%d", imageAPIVersion)
-	serviceProfile := fmt.Sprintf("http://iiif.io/api/image/%d/level%d.json", imageAPIVersion, imageAPILevel)
+	service := buildImageService(imageAPIVersion, imageAPILevel, iiifBase, serviceType)
 
 	return &Manifest{
 		Context: presentationAPIContextURL,
@@ -114,13 +139,7 @@ func Build(sheet *model.Sheet, publicBaseURL string, imageAPIVersion, imageAPILe
 									Format: imageBodyFormat,
 									Width:  width,
 									Height: height,
-									Service: []ImageService{
-										{
-											ID:      iiifBase,
-											Type:    serviceType,
-											Profile: serviceProfile,
-										},
-									},
+									Service: []any{service},
 								},
 								Target: canvasID,
 							},
