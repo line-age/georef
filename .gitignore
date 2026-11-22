@@ -12,3 +12,4 @@ bin/
 # Editor and OS
 .DS_Store
 *.swp
+.github/pull_request.md
