@@ -347,9 +347,8 @@ paths:
       summary: IIIF Presentation v3 manifest
       description: |
         Returns a IIIF Presentation API v3 manifest for a ready sheet.
-        The Presentation API version (v3) is hardcoded; changing it requires
-        a code change. The embedded Image API service reference version
-        matches `IIIF_IMAGE_API_VERSION` (default 2).
+        The Presentation API version (v3) is fixed. The embedded Image API
+        service descriptor reflects the configured Image API version (default: 2).
 
         Status routing: `processing` → `503`, `failed` → `404`, `deleted` → `410`.
       responses:
@@ -378,7 +377,7 @@ paths:
       summary: IIIF Image API info.json
       description: |
         Proxies the IIIF Image API info.json from the internal image server.
-        The version served matches `IIIF_IMAGE_API_VERSION` (default 2).
+        The Image API version served matches the server configuration (default: 2).
         The `@id` field is rewritten to the public URL before the response is
         forwarded to the client.
 
@@ -440,7 +439,7 @@ paths:
       description: |
         Proxies a IIIF Image API tile request to the internal image server
         and streams the response without buffering.
-        The version served matches `IIIF_IMAGE_API_VERSION` (default 2).
+        The Image API version served matches the server configuration (default: 2).
 
         Status routing: `processing` → `503`, `failed` → `404`, `deleted` → `410`.
       responses:
