@@ -17,6 +17,10 @@ func (handler *Handler) Routes() http.Handler {
 	// Upload form
 	router.Get("/", handler.serveUploadForm)
 
+	// API reference — Swagger UI at /docs, raw spec at /docs/openapi.yaml
+	router.Get("/docs", handler.serveAPIDocs)
+	router.Get("/docs/openapi.yaml", handler.serveOpenAPISpec)
+
 	// Auth — login, callback, logout
 	router.Get("/auth/login", handler.authenticator.LoginHandler)
 	router.Get("/auth/callback", handler.authenticator.CallbackHandler)

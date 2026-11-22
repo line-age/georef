@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	georef "github.com/line-age/georef"
 	"github.com/line-age/georef/internal/api"
 	"github.com/line-age/georef/internal/auth"
 	"github.com/line-age/georef/internal/config"
@@ -90,6 +91,7 @@ func main() {
 		MultipartMemoryLimit: cfg.MultipartMemoryLimit,
 		MaxUploadSize:        cfg.MaxUploadSize,
 		IIIFStatusCacheTTL:   cfg.IIIFStatusCacheTTL,
+		OpenAPISpec:          georef.OpenAPISpec,
 	})
 
 	server := &http.Server{

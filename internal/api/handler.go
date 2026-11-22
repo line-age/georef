@@ -25,6 +25,7 @@ type Handler struct {
 	retryAfterSeconds    string
 	multipartMemoryLimit int64
 	maxUploadSize        int64
+	openAPISpec          []byte
 }
 
 // Config holds the tunable parameters for a Handler.
@@ -37,6 +38,7 @@ type Config struct {
 	MultipartMemoryLimit int64
 	MaxUploadSize        int64
 	IIIFStatusCacheTTL   time.Duration // how long IIIF sheet status lookups are cached; 0 disables the cache
+	OpenAPISpec          []byte        // embedded OpenAPI spec served at GET /docs/openapi.yaml
 }
 
 // New returns a Handler wired to the given dependencies.
@@ -58,6 +60,7 @@ func New(sheets sheet.Accessor, store storage.Store, imageProxy *proxy.Proxy, au
 		retryAfterSeconds:    fmt.Sprintf("%d", cfg.RetryAfterSeconds),
 		multipartMemoryLimit: cfg.MultipartMemoryLimit,
 		maxUploadSize:        cfg.MaxUploadSize,
+		openAPISpec:          cfg.OpenAPISpec,
 	}
 }
 
