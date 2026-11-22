@@ -348,7 +348,8 @@ paths:
       description: |
         Returns a IIIF Presentation API v3 manifest for a ready sheet.
         The manifest includes the canvas dimensions obtained from the image
-        server and an embedded IIIF Image API v2 service reference.
+        server and an embedded IIIF Image API service reference (version
+        matches `IIIF_IMAGE_API_VERSION`, default 2).
 
         Status routing: `processing` → `503`, `failed` → `404`, `deleted` → `410`.
       responses:
@@ -376,19 +377,20 @@ paths:
       tags: [IIIF]
       summary: IIIF Image API info.json
       description: |
-        Proxies the IIIF Image API v2 info.json from the internal image server.
+        Proxies the IIIF Image API info.json from the internal image server.
+        The version served matches `IIIF_IMAGE_API_VERSION` (default 2).
         The `@id` field is rewritten to the public URL before the response is
         forwarded to the client.
 
         Status routing: `processing` → `503`, `failed` → `404`, `deleted` → `410`.
       responses:
         "200":
-          description: IIIF Image API v2 image descriptor.
+          description: IIIF Image API image descriptor.
           content:
             application/json:
               schema:
                 type: object
-                description: IIIF Image API v2 info.json document.
+                description: IIIF Image API info.json document.
         "404":
           $ref: "#/components/responses/NotFound"
         "410":
@@ -436,8 +438,9 @@ paths:
       tags: [IIIF]
       summary: IIIF Image API tile
       description: |
-        Proxies a IIIF Image API v2 tile request to the internal image server
+        Proxies a IIIF Image API tile request to the internal image server
         and streams the response without buffering.
+        The version served matches `IIIF_IMAGE_API_VERSION` (default 2).
 
         Status routing: `processing` → `503`, `failed` → `404`, `deleted` → `410`.
       responses:

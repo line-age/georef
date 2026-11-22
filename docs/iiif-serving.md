@@ -164,13 +164,13 @@ Manifest
         └── Annotation (motivation: painting)
             └── ImageBody
                 ├── id: /iiif/{id}/full/max/0/default.jpg
-                └── service (IIIF Image API v2)
+                └── service (IIIF Image API, version = IIIF_IMAGE_API_VERSION)
                     └── @id: /iiif/{id}
 ```
 
-The `service` block uses `@id` and `@type` (IIIF Image API v2 key names) even
-though the manifest itself is IIIF Presentation v3. This is intentional: the
-IIIF spec allows embedding older service versions using their own key names.
+The `service` block type and profile URL are derived from `IIIF_IMAGE_API_VERSION`
+and `IIIF_IMAGE_API_LEVEL` (defaults: v2, level 2), so the manifest always
+references the same Image API version the proxy is configured to use.
 
 Allmaps reads this service block to find the IIIF Image API endpoint and uses
 the canvas dimensions when georeferencing the image.
