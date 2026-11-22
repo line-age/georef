@@ -39,9 +39,9 @@ the result to storage. Conversion time is logged as `convert_ms` on every
 successful job.
 
 Key commits:
-- `b2295ddc` — worker package
+- `b9a3f2d` — worker package
 - `38bd077` — bounded retry; `MAX_CONVERSION_RETRIES` wired end-to-end
-- `26df950` — S3 fix: stream through `OpenOriginalScan` to a local temp file
+- `ea914e9` — S3 fix: stream through `OpenOriginalScan` to a local temp file
   before calling vips (vips cannot read `s3://` paths directly)
 
 ### IIIF proxy and status routing
@@ -66,7 +66,7 @@ Key commits:
 - `da9c756` — streaming reverse proxy
 - `4c8193b` — IIIF Presentation v3 manifest builder
 - `2fe211c` — TTL cache for sheet status lookups
-- `26df950` — `Cache-Control: public` / `private` based on `READ_LOGIN_REQUIRED`
+- `ea914e9` — `Cache-Control: public` / `private` based on `READ_LOGIN_REQUIRED`
 
 ### GitHub OAuth and team-gate middleware
 
@@ -86,8 +86,8 @@ config — useful for local testing.
 
 Key commits:
 - `c57670c` — GitHub OAuth and team-gate middleware
-- `26df950` — `RequireRead` and service credential
-- `560db8c` — `AUTH_REQUIRED` toggle
+- `ea914e9` — `RequireRead` and service credential
+- `70b1028` — `AUTH_REQUIRED` toggle
 
 ### S3 storage backend
 
@@ -98,7 +98,7 @@ AWS credential chain. A MinIO testcontainer integration test covers all `Store`
 interface methods.
 
 Key commits:
-- `26df950` — S3 storage backend and integration test
+- `ea914e9` — S3 storage backend and integration test
 
 ### Upload form with progress
 
@@ -109,7 +109,7 @@ and show a live progress bar during upload. After upload it polls
 
 Key commits:
 - `576ad5f` — web upload form
-- `560db8c` — XHR progress bar
+- `70b1028` — XHR progress bar
 
 ### Interactive API docs
 
@@ -121,10 +121,10 @@ categories — Web, Auth, Sheets, and IIIF — to make it easy to find what you
 need.
 
 Key commits:
-- `4cdef4d` — Swagger UI served at `/docs`; spec embedded with `//go:embed`
-- `3117df2` — naming and no-hardcoding rules applied to docs handlers
-- `48c0e12` — OpenAPI tags to separate Web, Auth, Sheets, and IIIF endpoints
-- `e192393` — `/docs` and `/docs/openapi.yaml` added to spec and request table
+- `02db723` — Swagger UI served at `/docs`; spec embedded with `//go:embed`
+- `e374131` — naming and no-hardcoding rules applied to docs handlers
+- `4affb51` — OpenAPI tags to separate Web, Auth, Sheets, and IIIF endpoints
+- `7899e6c` — `/docs` and `/docs/openapi.yaml` added to spec and request table
 
 ### IIIF version handling
 
@@ -143,10 +143,10 @@ v2 uses `@id`/`@type` and a full profile URL; v3 uses `id`/`type` and a plain
 level string.
 
 Key commits:
-- `437b434` — version-correct JSON tags in the manifest service descriptor
-- `2f23654` — cleaned up redundant parameter from the helper function
-- `330bfa6` — `.env.example` and `docs/iiif-serving.md` updated with version table
-- `2afb940` — plain-language version explanation added to `docs/iiif-serving.md`
+- `183cb83` — version-correct JSON tags in the manifest service descriptor
+- `03a90ce` — cleaned up redundant parameter from the helper function
+- `b79dc96` — `.env.example` and `docs/iiif-serving.md` updated with version table
+- `0814a91` — plain-language version explanation added to `docs/iiif-serving.md`
 
 ### Infrastructure
 
@@ -155,7 +155,7 @@ Key commits:
 - **Dockerfile** (`8da8560`, `deploy/Dockerfile`) — multi-stage build; server
   and worker as separate targets; `entrypoint.sh` runs migrations before the
   server starts
-- **Helm chart** (`e719d3b`) — `deploy/chart/` with server, worker, Cantaloupe,
+- **Helm chart** (`6165946`) — `deploy/chart/` with server, worker, Cantaloupe,
   ingress, and persistent volume templates
 - **Migrations** — three sequential migrations: `001` creates `sheets`,
   `002` adds `retry_count`, `003` fixes the claimable index to `processing`-only
@@ -203,6 +203,7 @@ See `docs/test-plan.md` for the full manual test checklist. Automated coverage:
 
 - `internal/api/upload_test.go` — upload validation, size limits, MIME checks
 - `internal/api/sheets_test.go` — sheet CRUD, delete → 410 on IIIF
+- `internal/auth/github_test.go` — auth middleware: passthrough when disabled, 401 when enabled (`e9514cb`)
 - `internal/worker/worker_test.go` — conversion, retry, exhaustion
 - `internal/sheet/sheet_test.go` — Postgres integration via testcontainers
 - `internal/storage/s3_test.go` — S3/MinIO integration via testcontainers
