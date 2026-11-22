@@ -7,6 +7,31 @@ rewrite that hides the internal image server, and the manifest build.
 
 ---
 
+## IIIF versions: what they are and which we use
+
+IIIF has two independent specs. They version separately and do not need to
+match each other.
+
+| Spec | What it does | Our version | How to change |
+|---|---|---|---|
+| **Presentation API** | The manifest — describes the object: its title, canvas dimensions, and where to find the image service | **v3** — hardcoded | Code change in `internal/iiif/manifest.go` |
+| **Image API** | The image service — delivers tiles and `info.json` (pixel data) | **v2** default | Set `IIIF_IMAGE_API_VERSION` env var |
+
+**Why v3 for the manifest?** Allmaps requires IIIF Presentation API v3. It reads
+the manifest to find the image service endpoint and canvas dimensions when
+georeferencing a sheet. This is fixed and not configurable.
+
+**Why v2 for the image service?** v2 is the most widely supported version across
+IIIF tools and is Cantaloupe's default. It can be changed to v3 by setting
+`IIIF_IMAGE_API_VERSION=3` — Cantaloupe serves both versions simultaneously at
+`/iiif/2/` and `/iiif/3/`. The manifest service block automatically uses the
+correct JSON keys and profile format for whichever version is configured.
+
+**Using Presentation v3 with Image API v2 is correct and normal** — they are
+from different layers of the IIIF stack and are designed to be mixed.
+
+---
+
 ## Status routing
 
 Before any IIIF content is served, the server looks up the sheet in Postgres
