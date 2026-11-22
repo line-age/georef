@@ -31,6 +31,7 @@ func TestRequireWrite_DisabledAuth_PassesThrough(t *testing.T) {
 
 func TestRequireWrite_NoSession_Returns401(t *testing.T) {
 	authenticator := auth.New(auth.Config{
+		AuthRequired:       true,
 		GitHubClientID:     "test-client-id",
 		GitHubClientSecret: "test-secret",
 		AllowedTeams:       []string{"lineage/editors"},
@@ -89,6 +90,7 @@ func TestLoginHandler_DisabledAuth_RedirectsHome(t *testing.T) {
 
 func TestLoginHandler_EnabledAuth_RedirectsToGitHub(t *testing.T) {
 	authenticator := auth.New(auth.Config{
+		AuthRequired:       true,
 		GitHubClientID:     "test-client-id",
 		GitHubClientSecret: "test-secret",
 		AllowedTeams:       []string{"lineage/editors"},
