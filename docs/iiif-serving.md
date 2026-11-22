@@ -152,25 +152,33 @@ flowchart TD
     H --> I["write manifest JSON\nContent-Type: application/ld+json"]
 ```
 
+### IIIF versions in use
+
+| Spec | Version | How to change |
+|---|---|---|
+| Presentation API (manifest) | **v3** — hardcoded | Edit `presentationAPIContextURL` in `internal/iiif/manifest.go`; requires a code change |
+| Image API (tiles, info.json) | **v2** default | Set `IIIF_IMAGE_API_VERSION`; must match what the image server serves |
+
 ### What is in the manifest
 
 The manifest follows IIIF Presentation API v3. It has one canvas (one image
 per sheet), with the painting annotation pointing at the IIIF image service:
 
 ```
-Manifest
+Manifest (Presentation API v3)
 └── Canvas (width × height pixels)
     └── AnnotationPage
         └── Annotation (motivation: painting)
             └── ImageBody
                 ├── id: /iiif/{id}/full/max/0/default.jpg
-                └── service (IIIF Image API, version = IIIF_IMAGE_API_VERSION)
-                    └── @id: /iiif/{id}
+                └── service (Image API v{IIIF_IMAGE_API_VERSION})
+                    ├── v2: @id / @type keys, full profile URL
+                    └── v3: id / type keys, plain level string
 ```
 
-The `service` block type and profile URL are derived from `IIIF_IMAGE_API_VERSION`
-and `IIIF_IMAGE_API_LEVEL` (defaults: v2, level 2), so the manifest always
-references the same Image API version the proxy is configured to use.
+The `service` block type, profile, and JSON key names are all derived from
+`IIIF_IMAGE_API_VERSION` and `IIIF_IMAGE_API_LEVEL` (defaults: v2, level 2),
+so the manifest always references the same Image API version the proxy uses.
 
 Allmaps reads this service block to find the IIIF Image API endpoint and uses
 the canvas dimensions when georeferencing the image.

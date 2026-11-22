@@ -347,9 +347,9 @@ paths:
       summary: IIIF Presentation v3 manifest
       description: |
         Returns a IIIF Presentation API v3 manifest for a ready sheet.
-        The manifest includes the canvas dimensions obtained from the image
-        server and an embedded IIIF Image API service reference (version
-        matches `IIIF_IMAGE_API_VERSION`, default 2).
+        The Presentation API version (v3) is hardcoded; changing it requires
+        a code change. The embedded Image API service reference version
+        matches `IIIF_IMAGE_API_VERSION` (default 2).
 
         Status routing: `processing` → `503`, `failed` → `404`, `deleted` → `410`.
       responses:
