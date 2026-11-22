@@ -52,7 +52,10 @@ type ImageBody struct {
 	Format  string `json:"format"`
 	Width   int    `json:"width"`
 	Height  int    `json:"height"`
-	Service []any  `json:"service"`
+	// Service holds either ImageServiceV2 or ImageServiceV3 depending on the
+	// configured IIIF Image API version; the two types have different JSON key
+	// names so they cannot share a single concrete struct.
+	Service []any `json:"service"`
 }
 
 // ImageServiceV2 is a IIIF Image API v2 service descriptor.
@@ -86,7 +89,8 @@ const (
 // buildImageService returns the correct service descriptor struct for the given
 // IIIF Image API version. v2 uses @id/@type JSON keys and a full profile URL;
 // v3 uses id/type keys and a plain level string per the IIIF Image API v3 spec.
-func buildImageService(imageAPIVersion, imageAPILevel int, serviceID, serviceType string) any {
+func buildImageService(imageAPIVersion, imageAPILevel int, serviceID string) any {
+	serviceType := fmt.Sprintf("ImageService%d", imageAPIVersion)
 	if imageAPIVersion >= 3 {
 		return ImageServiceV3{
 			ID:      serviceID,
@@ -110,8 +114,7 @@ func Build(sheet *model.Sheet, publicBaseURL string, imageAPIVersion, imageAPILe
 	iiifBase := publicBaseURL + "/iiif/" + sheet.ID
 	canvasID := iiifBase + "/canvas/p1"
 
-	serviceType := fmt.Sprintf("ImageService%d", imageAPIVersion)
-	service := buildImageService(imageAPIVersion, imageAPILevel, iiifBase, serviceType)
+	service := buildImageService(imageAPIVersion, imageAPILevel, iiifBase)
 
 	return &Manifest{
 		Context: presentationAPIContextURL,
