@@ -7,9 +7,22 @@ info:
     Uploads are accepted, stored, and converted to pyramidal TIFFs by a
     background worker. IIIF URLs are stable from the moment of upload.
 
+tags:
+  - name: Web
+    description: Browser-facing pages served as HTML — not intended for API clients.
+  - name: Auth
+    description: GitHub OAuth login flow. See `docs/auth.md` for the full design.
+  - name: Sheets
+    description: Sheet management — upload, query, update and delete sheet records.
+  - name: IIIF
+    description: |
+      IIIF Image API (tiles and info.json) and Presentation API (manifests).
+      Requests are checked against the sheet status before reaching the image server.
+
 paths:
   /:
     get:
+      tags: [Web]
       summary: Upload form
       description: |
         Serves the browser-based upload form. No authentication required to
@@ -24,6 +37,7 @@ paths:
 
   /docs:
     get:
+      tags: [Web]
       summary: API reference (Swagger UI)
       description: |
         Renders the interactive Swagger UI for this API. The UI loads the OpenAPI
@@ -38,6 +52,7 @@ paths:
 
   /docs/openapi.yaml:
     get:
+      tags: [Web]
       summary: OpenAPI specification
       description: |
         Returns the OpenAPI 3.0 specification for this API in YAML format.
@@ -58,6 +73,7 @@ paths:
 
   /auth/login:
     get:
+      tags: [Auth]
       summary: Begin GitHub OAuth login
       description: |
         Generates a random state nonce, stores it in the session cookie, and
@@ -69,6 +85,7 @@ paths:
 
   /auth/callback:
     get:
+      tags: [Auth]
       summary: Handle GitHub OAuth callback
       description: |
         Exchanges the authorisation code for an OAuth token, checks whether the
@@ -99,6 +116,7 @@ paths:
 
   /auth/logout:
     post:
+      tags: [Auth]
       summary: End session
       description: Clears the session cookie and redirects to `/`.
       responses:
@@ -107,6 +125,7 @@ paths:
 
   /sheets:
     post:
+      tags: [Sheets]
       summary: Upload a scanned map
       description: |
         Accepts a scanned map file (TIFF or JPEG), stores the original,
@@ -204,6 +223,7 @@ paths:
           $ref: "#/components/responses/InternalError"
 
     get:
+      tags: [Sheets]
       summary: List sheets
       description: |
         Returns sheets in reverse-chronological order. Deleted sheets are
@@ -250,6 +270,7 @@ paths:
       - $ref: "#/components/parameters/SheetID"
 
     get:
+      tags: [Sheets]
       summary: Get a sheet
       description: |
         Returns the sheet record. Returns `410 Gone` if the sheet has been
@@ -269,6 +290,7 @@ paths:
           $ref: "#/components/responses/InternalError"
 
     patch:
+      tags: [Sheets]
       summary: Update sheet metadata
       description: |
         Replaces all editable metadata fields (title, institution, source_url,
@@ -299,6 +321,7 @@ paths:
           $ref: "#/components/responses/InternalError"
 
     delete:
+      tags: [Sheets]
       summary: Delete a sheet
       description: |
         Soft-deletes the sheet. The row and ID are retained permanently;
@@ -320,6 +343,7 @@ paths:
       - $ref: "#/components/parameters/SheetID"
 
     get:
+      tags: [IIIF]
       summary: IIIF Presentation v3 manifest
       description: |
         Returns a IIIF Presentation API v3 manifest for a ready sheet.
@@ -349,6 +373,7 @@ paths:
       - $ref: "#/components/parameters/SheetID"
 
     get:
+      tags: [IIIF]
       summary: IIIF Image API info.json
       description: |
         Proxies the IIIF Image API v2 info.json from the internal image server.
@@ -408,6 +433,7 @@ paths:
         example: "jpg"
 
     get:
+      tags: [IIIF]
       summary: IIIF Image API tile
       description: |
         Proxies a IIIF Image API v2 tile request to the internal image server
