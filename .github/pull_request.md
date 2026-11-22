@@ -199,14 +199,48 @@ All tuneable values are environment variables with documented defaults. See
 
 ## Test plan
 
-See `docs/test-plan.md` for the full manual test checklist. Automated coverage:
+See `docs/test-plan.md` for the full manual test checklist.
 
-- `internal/api/upload_test.go` — upload validation, size limits, MIME checks
-- `internal/api/sheets_test.go` — sheet CRUD, delete → 410 on IIIF
-- `internal/auth/github_test.go` — auth middleware: passthrough when disabled, 401 when enabled (`e9514cb`)
-- `internal/worker/worker_test.go` — conversion, retry, exhaustion
-- `internal/sheet/sheet_test.go` — Postgres integration via testcontainers
-- `internal/storage/s3_test.go` — S3/MinIO integration via testcontainers
+### Automated tests
+
+**Upload (`internal/api/upload_test.go`)**
+Covers the full upload path end-to-end against a real Postgres database (via
+testcontainers). Key things checked: JPEG and TIFF uploads return `202`; the
+response body contains the sheet ID, API URL, IIIF base URL and manifest URL;
+the ID is a valid ULID and unique per upload; the file is saved at the right
+storage path; the SHA-256 checksum and byte count match the actual file; the
+sheet starts in `processing` status; optional fields (description, year, source)
+are stored when provided and empty when not. Error cases: missing title → `400`,
+missing file → `400`, unsupported file type → `400`, file over the size limit →
+`413`.
+
+**Sheet API (`internal/api/sheets_test.go`)**
+Covers reading and managing sheets. Key things checked: fetching a sheet by ID
+returns its data; fetching an unknown ID returns `404`; listing sheets works with
+and without a status filter; invalid filter values return `400`; updating a
+sheet's title and description works; deleting a sheet returns `204`; a deleted
+sheet ID returns `410` on the sheet API and on every IIIF endpoint (info.json,
+manifest) — confirming the ID is permanently retired, never reassigned.
+
+**Auth middleware (`internal/auth/github_test.go`)**
+Checks the auth toggle behaviour. When auth is disabled (no GitHub client ID
+configured), write endpoints pass through without a session. When auth is
+enabled, a request with no session is rejected with `401`. The login handler
+redirects to GitHub's OAuth URL when auth is enabled, and redirects home when
+it is not. Logout clears the session and redirects home.
+
+**Worker (`internal/worker/worker_test.go`)**
+Checks the conversion worker against an in-memory stub. Key things checked: a
+successful conversion sets the sheet to `ready`; a conversion error sets it to
+`failed`; a sheet that has already exhausted its retry budget is skipped
+entirely; the worker stops cleanly when its context is cancelled.
+
+**S3 storage (`internal/storage/s3_test.go`)**
+Runs against a real MinIO container (via testcontainers). Checks that the
+original scan can be saved and read back; that `OriginalScanPath` returns an
+`s3://` URI; that the pyramidal TIFF can be saved and its path retrieved; and
+that opening a file that does not exist returns an error rather than silently
+succeeding.
 
 ---
 
