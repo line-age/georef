@@ -53,8 +53,15 @@ team membership is re-checked at next login after session expiry.
 
 ## Team check
 
-`GITHUB_ALLOWED_TEAMS` is a comma-separated list of `{org}/{team}` slugs,
-for example `lineage/editors,lineage/admins`. On callback:
+`GITHUB_ALLOWED_TEAMS` is a comma-separated list of `{org}/{team}` slugs.
+GitHub converts team names to slugs automatically: spaces become hyphens and
+everything is lowercased. For example, a team named "Map Editors" in the
+`lineage` org has the slug `lineage/map-editors`.
+
+To confirm the exact slug, open `github.com/orgs/{org}/teams/{slug}` — if the
+page loads, the slug is correct.
+
+Example value: `lineage/editors,lineage/admins`. On callback:
 
 1. The server calls `GET https://api.github.com/user/teams?per_page=100` with
    the user's OAuth token, following `Link: rel="next"` pagination until all
@@ -83,32 +90,77 @@ has no effect — `RequireRead` is a passthrough regardless.
 When read login is on, IIIF responses carry `Cache-Control: private` so CDNs do
 not cache restricted content. When off, they carry `Cache-Control: public`.
 
+## Setting up the GitHub OAuth App
+
+Create the OAuth App under the **organization** that owns the allowed teams, not
+under a personal account. An org-owned app can always read that org's team
+memberships; a personal app may be blocked if the org restricts third-party
+access.
+
+1. Go to **github.com/organizations/{org}/settings/applications** → OAuth Apps →
+   **New OAuth App**.
+2. Fill in the form:
+   - **Application name** — something descriptive, e.g. `georef`
+   - **Homepage URL** — your deployment URL
+   - **Authorization callback URL** — `{BASE_URL}/auth/callback`, where
+     `BASE_URL` is what you set in your environment, e.g.
+     `https://maps.example.com/auth/callback`. The server builds the callback
+     URL from `BASE_URL` automatically — there is no separate config var for it.
+3. Click **Register application**.
+4. Copy the **Client ID** → set as `GITHUB_CLIENT_ID`.
+5. Click **Generate a new client secret** → copy immediately → set as
+   `GITHUB_CLIENT_SECRET`.
+
+Create a separate OAuth App for each environment (staging, production, local)
+so callback URLs match exactly and secrets stay isolated.
+
+### Generating SESSION_KEY
+
+The session key is not from GitHub — generate it yourself:
+
+```sh
+openssl rand -base64 32
+```
+
+Set the output as `SESSION_KEY`. Keep it secret. Rotating it invalidates all
+active sessions immediately (everyone is logged out).
+
 ## Configuration
 
 | Env var | Required | Description |
 |---|---|---|
+| `AUTH_REQUIRED` | No | Set `false` to bypass all auth middleware even with GitHub configured; default `true` |
 | `GITHUB_CLIENT_ID` | No — omit to disable auth | GitHub OAuth app client ID |
 | `GITHUB_CLIENT_SECRET` | When auth enabled | GitHub OAuth app client secret |
-| `GITHUB_ALLOWED_TEAMS` | When auth enabled | Comma-separated `org/team` pairs |
-| `SESSION_KEY` | When auth enabled | Base64-encoded signing key (≥ 32 bytes) |
+| `GITHUB_ALLOWED_TEAMS` | When auth enabled | Comma-separated `org/team` slugs, e.g. `lineage/editors` |
+| `SESSION_KEY` | When auth enabled | Base64-encoded signing key (≥ 32 bytes); generate with `openssl rand -base64 32` |
 | `SESSION_MAX_AGE` | No | Session lifetime in seconds; default `604800` (7 days) |
 | `SECURE_COOKIES` | No | Set `false` for local development over HTTP; default `true` |
 | `READ_LOGIN_REQUIRED` | No | Set `true` to require auth on all IIIF endpoints; default `false` |
 | `SERVICE_CREDENTIAL` | When `READ_LOGIN_REQUIRED=true` | Bearer token for server-side IIIF access |
+
+The OAuth callback URL is not a separate variable — the server builds it as
+`BASE_URL + /auth/callback`. Register that exact URL in the GitHub OAuth App.
 
 None of these values belong in the repository. They are set in the deployment
 environment only.
 
 ## Disabled mode
 
-When `GITHUB_CLIENT_ID` is not set:
+Auth is disabled in two cases:
+
+- `GITHUB_CLIENT_ID` is not set, **or**
+- `AUTH_REQUIRED=false`
+
+When disabled:
 
 - `RequireWrite` is a passthrough — all write requests succeed without a session.
 - `RequireRead` is a passthrough — `READ_LOGIN_REQUIRED` has no effect.
 - `/auth/login` and `/auth/callback` redirect immediately to `/`.
 - `/auth/logout` clears any existing session and redirects to `/`.
 
-This makes local development work without registering a GitHub OAuth app.
+`AUTH_REQUIRED=false` is useful when you want to keep all GitHub vars configured
+(for a quick re-enable) but bypass the login requirement during local testing.
 
 ## Routes
 

@@ -36,6 +36,7 @@ const (
 
 // Config holds the authentication configuration.
 type Config struct {
+	AuthRequired       bool     // when false, all auth middleware is a passthrough even with GitHub configured; default true
 	GitHubClientID     string
 	GitHubClientSecret string
 	AllowedTeams       []string // "org/team" pairs, e.g. ["lineage/editors"]
@@ -76,9 +77,10 @@ type githubOrganization struct {
 }
 
 // New returns an Authenticator configured from cfg.
-// When GitHubClientID is empty, authentication is disabled and RequireWrite is a no-op.
+// Authentication is disabled when GitHubClientID is empty or AuthRequired is false.
+// In both cases RequireWrite and RequireRead are passthroughs.
 func New(cfg Config) *Authenticator {
-	if cfg.GitHubClientID == "" {
+	if cfg.GitHubClientID == "" || !cfg.AuthRequired {
 		return &Authenticator{disabled: true}
 	}
 

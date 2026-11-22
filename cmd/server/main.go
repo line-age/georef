@@ -70,6 +70,7 @@ func main() {
 		MaxInfoBodySize:     cfg.ProxyMaxInfoBodySize,
 	})
 	authenticator := auth.New(auth.Config{
+		AuthRequired:       cfg.AuthRequired,
 		GitHubClientID:     cfg.GitHubClientID,
 		GitHubClientSecret: cfg.GitHubClientSecret,
 		AllowedTeams:       cfg.AllowedTeams,

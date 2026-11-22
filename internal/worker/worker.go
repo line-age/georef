@@ -113,9 +113,11 @@ func (worker *Worker) convertSheet(ctx context.Context, sheet *model.Sheet) (pyr
 	dstFile.Close()
 	defer os.Remove(dstPath) //nolint:errcheck
 
+	convertStart := time.Now()
 	if err := worker.converter.Convert(ctx, srcPath, dstPath); err != nil {
 		return "", err
 	}
+	convertDuration := time.Since(convertStart)
 
 	pyramidFile, err := os.Open(dstPath)
 	if err != nil {
@@ -128,6 +130,6 @@ func (worker *Worker) convertSheet(ctx context.Context, sheet *model.Sheet) (pyr
 		return "", fmt.Errorf("%s: %w", errMsgSavePyramidalTIFF, err)
 	}
 
-	slog.InfoContext(ctx, logMsgSheetConverted, "id", sheet.ID)
+	slog.InfoContext(ctx, logMsgSheetConverted, "id", sheet.ID, "convert_ms", convertDuration.Milliseconds())
 	return storedPath, nil
 }

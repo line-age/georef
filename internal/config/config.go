@@ -36,6 +36,7 @@ type ServerConfig struct {
 	IIIFStatusCacheTTL      time.Duration // how long IIIF sheet status lookups are cached in memory; default 5s
 
 	// Auth — optional. Leave GitHubClientID empty to disable authentication.
+	AuthRequired       bool          // when false, all auth middleware is a passthrough; default true
 	GitHubClientID     string
 	GitHubClientSecret string
 	AllowedTeams       []string      // parsed from GITHUB_ALLOWED_TEAMS (comma-separated "org/team" pairs)
@@ -158,6 +159,7 @@ func LoadServer() (*ServerConfig, error) {
 		ShutdownTimeout:          shutdownTimeout,
 		Addr:                     envWithDefault("ADDR", ":8080"),
 		MaxUploadSize:            maxUploadSize,
+		AuthRequired:             envWithDefault("AUTH_REQUIRED", "true") != "false",
 		GitHubClientID:           readEnv("GITHUB_CLIENT_ID"),
 		GitHubClientSecret:       readEnv("GITHUB_CLIENT_SECRET"),
 		AllowedTeams:             parseTeams(readEnv("GITHUB_ALLOWED_TEAMS")),

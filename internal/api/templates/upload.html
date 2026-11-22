@@ -23,6 +23,10 @@
   #status pre { margin: .5rem 0 0; font-size: .8rem; white-space: pre-wrap; word-break: break-all; }
   .login-hint { margin-top: 1rem; font-size: .875rem; display: none; }
   .login-hint a { color: #0969da; }
+  #progressWrap { margin-top: 1.5rem; display: none; }
+  #progressWrap p { font-size: .875rem; margin: 0 0 .4rem; }
+  #progressBar { width: 100%; height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+  #progressFill { height: 100%; width: 0; background: #0969da; transition: width .2s ease; border-radius: 4px; }
 </style>
 </head>
 <body>
@@ -51,6 +55,11 @@
   You need to <a href="/auth/login">log in with GitHub</a> before uploading.
 </div>
 
+<div id="progressWrap">
+  <p id="progressLabel">Uploading… 0%</p>
+  <div id="progressBar"><div id="progressFill"></div></div>
+</div>
+
 <div id="status"></div>
 
 <script>
@@ -61,10 +70,24 @@
   var submitBtn = document.getElementById('submitBtn');
   var statusBox = document.getElementById('status');
   var loginHint = document.getElementById('loginHint');
+  var progressWrap = document.getElementById('progressWrap');
+  var progressLabel = document.getElementById('progressLabel');
+  var progressFill = document.getElementById('progressFill');
   var pollTimer = null;
 
-  function showStatus(cls, html) {
-    statusBox.className = cls;
+  function setProgress(percent) {
+    progressWrap.style.display = 'block';
+    progressLabel.textContent = 'Uploading… ' + percent + '%';
+    progressFill.style.width = percent + '%';
+  }
+
+  function hideProgress() {
+    progressWrap.style.display = 'none';
+    progressFill.style.width = '0';
+  }
+
+  function showStatus(statusClass, html) {
+    statusBox.className = statusClass;
     statusBox.innerHTML = html;
     statusBox.style.display = 'block';
   }
@@ -76,7 +99,7 @@
   function pollSheet(id) {
     pollTimer = setInterval(function () {
       fetch('/sheets/' + id)
-        .then(function (resp) { return resp.json(); })
+        .then(function (response) { return response.json(); })
         .then(function (data) {
           if (data.status === 'ready') {
             stopPolling();
@@ -107,10 +130,11 @@
     }, 3000);
   }
 
-  form.addEventListener('submit', function (evt) {
-    evt.preventDefault();
+  form.addEventListener('submit', function (event) {
+    event.preventDefault();
     stopPolling();
     loginHint.style.display = 'none';
+    hideProgress();
 
     var titleVal = document.getElementById('title').value.trim();
     if (!titleVal) {
@@ -131,38 +155,53 @@
     formData.append('file', fileInput.files[0]);
 
     submitBtn.disabled = true;
-    showStatus('info', '<strong>Uploading&hellip;</strong>');
+    statusBox.style.display = 'none';
+    setProgress(0);
 
-    fetch('/sheets', { method: 'POST', body: formData })
-      .then(function (resp) {
-        if (resp.status === 401 || resp.status === 403) {
-          submitBtn.disabled = false;
-          loginHint.style.display = 'block';
-          statusBox.style.display = 'none';
-          return null;
-        }
-        return resp.json().then(function (data) {
-          return { status: resp.status, data: data };
-        });
-      })
-      .then(function (result) {
-        if (!result) return;
-        if (result.status === 202) {
-          showStatus('info',
-            '<strong>Uploaded — converting&hellip;</strong>' +
-            '<pre>ID: ' + result.data.id + '</pre>');
-          pollSheet(result.data.id);
-        } else {
-          submitBtn.disabled = false;
-          showStatus('error',
-            '<strong>Upload failed (' + result.status + '):</strong> ' +
-            (result.data && result.data.error ? result.data.error : 'unknown error'));
-        }
-      })
-      .catch(function (err) {
+    var xhr = new XMLHttpRequest();
+
+    xhr.upload.addEventListener('progress', function (event) {
+      if (event.lengthComputable) {
+        setProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    });
+
+    xhr.addEventListener('load', function () {
+      hideProgress();
+      var data;
+      try { data = JSON.parse(xhr.responseText); } catch (parseError) { data = {}; }
+      if (xhr.status === 401 || xhr.status === 403) {
         submitBtn.disabled = false;
-        showStatus('error', '<strong>Network error:</strong> ' + err.message);
-      });
+        loginHint.style.display = 'block';
+        return;
+      }
+      if (xhr.status === 202) {
+        showStatus('info',
+          '<strong>Uploaded — converting&hellip;</strong>' +
+          '<pre>ID: ' + data.id + '</pre>');
+        pollSheet(data.id);
+      } else {
+        submitBtn.disabled = false;
+        showStatus('error',
+          '<strong>Upload failed (' + xhr.status + '):</strong> ' +
+          (data.error ? data.error : 'unknown error'));
+      }
+    });
+
+    xhr.addEventListener('error', function () {
+      hideProgress();
+      submitBtn.disabled = false;
+      showStatus('error', '<strong>Network error — upload failed.</strong>');
+    });
+
+    xhr.addEventListener('abort', function () {
+      hideProgress();
+      submitBtn.disabled = false;
+      showStatus('error', '<strong>Upload cancelled.</strong>');
+    });
+
+    xhr.open('POST', '/sheets');
+    xhr.send(formData);
   });
 }());
 </script>

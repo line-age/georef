@@ -7,9 +7,9 @@ happens when conversion fails.
 ## Auth flow
 
 Write endpoints (`POST /sheets`, `PATCH /sheets/{id}`, `DELETE /sheets/{id}`)
-require a GitHub session in a configured team. When `GITHUB_CLIENT_ID` is not
-set, authentication is disabled and all requests pass through (local
-development).
+require a GitHub session in a configured team. Authentication is disabled when
+`GITHUB_CLIENT_ID` is not set, or when `AUTH_REQUIRED=false` — in both cases
+all requests pass through (useful for local development).
 
 ```mermaid
 flowchart TD
@@ -46,9 +46,9 @@ flowchart TD
   header for server-side callers that cannot use a browser session. When
   `READ_LOGIN_REQUIRED` is false (the default), `RequireRead` is a passthrough.
   See `docs/auth.md` for the full read-login design.
-- **Disabled mode** — when `GITHUB_CLIENT_ID` is unset, both `RequireWrite` and
-  `RequireRead` are passthroughs and the `/auth/*` routes redirect immediately to
-  `/`.
+- **Disabled mode** — when `GITHUB_CLIENT_ID` is unset or `AUTH_REQUIRED=false`,
+  both `RequireWrite` and `RequireRead` are passthroughs and the `/auth/*` routes
+  redirect immediately to `/`.
 
 ---
 
@@ -223,7 +223,7 @@ calling the API directly.
 flowchart TD
     A([user visits GET /]) --> B[server renders upload.html via html/template]
     B --> C([user fills form and clicks Upload])
-    C --> D[browser POST /sheets via fetch]
+    C --> D[browser POST /sheets via XMLHttpRequest\nshows upload progress bar]
     D --> E{response status}
     E -->|401 or 403| F[show GitHub login link\nno polling started]
     E -->|400 or 413| G[show validation error\nre-enable submit button]
@@ -243,5 +243,8 @@ flowchart TD
   can visit it; only the submit step requires a session.
 - **Polling.** The form polls `GET /sheets/{id}` every 3 seconds. This is a
   simple interval loop — no websocket, no server-sent events.
+- **Upload progress.** The form uses `XMLHttpRequest` (not `fetch`) so it can
+  listen to `xhr.upload.progress` events. A progress bar shows percentage
+  complete as the file transfers.
 - **No framework.** The form uses plain HTML and vanilla JS. The server renders
   it with Go's `html/template` package.
