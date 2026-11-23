@@ -326,9 +326,10 @@ func TestUploadSheet(t *testing.T) {
 
 	t.Run("file_too_large_returns_413", func(t *testing.T) {
 		// Create a handler with a tiny limit so we don't need to send gigabytes.
+		// The file must exceed MaxUploadSize plus the ~1 KiB multipart form overhead,
+		// so 2000 bytes of content (≈2004-byte file) safely triggers the limit.
 		limitedHandler := api.New(sheets, store, nil, nil, api.Config{BaseURL: "https://maps.example.com", IIIFImageAPIVersion: 2, IIIFImageAPILevel: 2, RetryAfterSeconds: 5, MultipartMemoryLimit: 32 << 20, MaxUploadSize: 100})
-		// TIFF magic (4 bytes) + 200 bytes of padding = 204 bytes, well over the 100-byte limit.
-		oversizedContent := makeTIFFFile(strings.Repeat("x", 200))
+		oversizedContent := makeTIFFFile(strings.Repeat("x", 2000))
 		rec := doUpload(t, limitedHandler, uploadForm{
 			title:       "Big Map",
 			fileContent: oversizedContent,

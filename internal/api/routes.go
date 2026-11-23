@@ -34,11 +34,56 @@ func (handler *Handler) Routes() http.Handler {
 	router.With(handler.authenticator.RequireWrite).Delete("/sheets/{id}", handler.deleteSheet)
 
 	// IIIF Presentation API and Image API.
+	// CORS is required so browser-based IIIF viewers can fetch manifests, info.json
+	// and tiles cross-origin. OPTIONS preflight routes are registered so chi routes
+	// them into the group before the iiifCORSMiddleware writes the preflight response.
 	// RequireRead is a no-op when READ_LOGIN_REQUIRED is false (the default).
 	// When enabled it checks for a valid session or Authorization: Bearer token.
-	router.With(handler.authenticator.RequireRead).Get("/iiif/{id}/manifest", handler.serveManifest)
-	router.With(handler.authenticator.RequireRead).Get("/iiif/{id}/info.json", handler.serveInfoJSON)
-	router.With(handler.authenticator.RequireRead).Get("/iiif/{id}/*", handler.serveTile)
+	noop := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }
+	router.Group(func(iiifRouter chi.Router) {
+		iiifRouter.Use(newIIIFCORSMiddleware(handler.corsAllowedOrigins))
+		iiifRouter.Options("/iiif/{id}/manifest", noop)
+		iiifRouter.Options("/iiif/{id}/info.json", noop)
+		iiifRouter.Options("/iiif/{id}/*", noop)
+		iiifRouter.With(handler.authenticator.RequireRead).Get("/iiif/{id}/manifest", handler.serveManifest)
+		iiifRouter.With(handler.authenticator.RequireRead).Get("/iiif/{id}/info.json", handler.serveInfoJSON)
+		iiifRouter.With(handler.authenticator.RequireRead).Get("/iiif/{id}/*", handler.serveTile)
+	})
 
 	return router
+}
+
+// newIIIFCORSMiddleware returns a middleware that adds CORS headers for IIIF endpoints.
+// When allowedOrigins is ["*"], every origin is accepted and the wildcard is returned.
+// When allowedOrigins lists specific origins, the request Origin is checked; a match
+// echoes that origin back and adds Vary: Origin so caches key on it correctly.
+// OPTIONS preflight is handled before auth middleware so viewers can probe without a session.
+func newIIIFCORSMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
+	allowAll := len(allowedOrigins) == 1 && allowedOrigins[0] == "*"
+
+	allowed := make(map[string]bool, len(allowedOrigins))
+	for _, origin := range allowedOrigins {
+		allowed[origin] = true
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if allowAll {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			} else {
+				requestOrigin := r.Header.Get("Origin")
+				if allowed[requestOrigin] {
+					w.Header().Set("Access-Control-Allow-Origin", requestOrigin)
+					w.Header().Add("Vary", "Origin")
+				}
+			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Accept")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

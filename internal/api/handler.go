@@ -23,9 +23,11 @@ type Handler struct {
 	iiifImageAPIVersion  int
 	iiifImageAPILevel    int
 	retryAfterSeconds    string
-	multipartMemoryLimit int64
-	maxUploadSize        int64
+	multipartMemoryLimit  int64
+	maxUploadSize         int64
+	multipartFormOverhead int64
 	openAPISpec          []byte
+	corsAllowedOrigins   []string
 }
 
 // Config holds the tunable parameters for a Handler.
@@ -35,10 +37,12 @@ type Config struct {
 	IIIFImageAPIVersion  int
 	IIIFImageAPILevel    int
 	RetryAfterSeconds    int
-	MultipartMemoryLimit int64
-	MaxUploadSize        int64
-	IIIFStatusCacheTTL   time.Duration // how long IIIF sheet status lookups are cached; 0 disables the cache
+	MultipartMemoryLimit  int64
+	MaxUploadSize         int64
+	MultipartFormOverhead int64         // extra bytes allowed above MaxUploadSize for multipart boundary and form fields; default 1024
+	IIIFStatusCacheTTL    time.Duration // how long IIIF sheet status lookups are cached; 0 disables the cache
 	OpenAPISpec          []byte        // embedded OpenAPI spec served at GET /docs/openapi.yaml
+	CORSAllowedOrigins   []string      // origins allowed in Access-Control-Allow-Origin; ["*"] allows all
 }
 
 // New returns a Handler wired to the given dependencies.
@@ -47,20 +51,30 @@ func New(sheets sheet.Accessor, store storage.Store, imageProxy *proxy.Proxy, au
 	if authenticator == nil {
 		authenticator = auth.New(auth.Config{}) // disabled passthrough
 	}
+	corsOrigins := cfg.CORSAllowedOrigins
+	if len(corsOrigins) == 0 {
+		corsOrigins = []string{"*"}
+	}
+	formOverhead := cfg.MultipartFormOverhead
+	if formOverhead <= 0 {
+		formOverhead = 1024
+	}
 	return &Handler{
-		sheets:               sheets,
-		iiifSheets:           sheet.NewCachedAccessor(sheets, cfg.IIIFStatusCacheTTL),
-		store:                store,
-		imageProxy:           imageProxy,
-		authenticator:        authenticator,
-		baseURL:              cfg.BaseURL,
-		imageServerURL:       cfg.ImageServerURL,
-		iiifImageAPIVersion:  cfg.IIIFImageAPIVersion,
-		iiifImageAPILevel:    cfg.IIIFImageAPILevel,
-		retryAfterSeconds:    fmt.Sprintf("%d", cfg.RetryAfterSeconds),
-		multipartMemoryLimit: cfg.MultipartMemoryLimit,
-		maxUploadSize:        cfg.MaxUploadSize,
-		openAPISpec:          cfg.OpenAPISpec,
+		sheets:                sheets,
+		iiifSheets:            sheet.NewCachedAccessor(sheets, cfg.IIIFStatusCacheTTL),
+		store:                 store,
+		imageProxy:            imageProxy,
+		authenticator:         authenticator,
+		baseURL:               cfg.BaseURL,
+		imageServerURL:        cfg.ImageServerURL,
+		iiifImageAPIVersion:   cfg.IIIFImageAPIVersion,
+		iiifImageAPILevel:     cfg.IIIFImageAPILevel,
+		retryAfterSeconds:     fmt.Sprintf("%d", cfg.RetryAfterSeconds),
+		multipartMemoryLimit:  cfg.MultipartMemoryLimit,
+		maxUploadSize:         cfg.MaxUploadSize,
+		multipartFormOverhead: formOverhead,
+		openAPISpec:           cfg.OpenAPISpec,
+		corsAllowedOrigins:    corsOrigins,
 	}
 }
 

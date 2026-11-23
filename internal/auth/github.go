@@ -103,6 +103,7 @@ func New(cfg Config) *Authenticator {
 	}
 
 	cookieStore := sessions.NewCookieStore(cfg.SessionKey)
+	cookieStore.MaxAge(sessionMaxAge)
 	cookieStore.Options = &sessions.Options{
 		Path:     "/",
 		MaxAge:   sessionMaxAge,

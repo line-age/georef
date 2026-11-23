@@ -51,6 +51,11 @@ No session data is stored server-side; the signed cookie is the session.
 The session stores only `authenticated=true`. The token is not persisted;
 team membership is re-checked at next login after session expiry.
 
+`SESSION_MAX_AGE` is enforced at two levels: the browser cookie's `Max-Age`
+attribute, and the signed session data itself. Both are set to the same value,
+so a reissued cookie with a future expiry cannot extend a session beyond
+`SESSION_MAX_AGE` seconds from the time of login.
+
 ## Team check
 
 `GITHUB_ALLOWED_TEAMS` is a comma-separated list of `{org}/{team}` slugs.

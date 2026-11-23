@@ -99,7 +99,13 @@ func (cached *CachedAccessor) Update(ctx context.Context, id string, mutate func
 }
 
 func (cached *CachedAccessor) SoftDelete(ctx context.Context, id string) error {
-	return cached.inner.SoftDelete(ctx, id)
+	if err := cached.inner.SoftDelete(ctx, id); err != nil {
+		return err
+	}
+	cached.mu.Lock()
+	delete(cached.cache, id)
+	cached.mu.Unlock()
+	return nil
 }
 
 func (cached *CachedAccessor) ProcessNext(ctx context.Context, maxRetries int, processor func(ctx context.Context, sheet *model.Sheet) (string, error)) (bool, error) {

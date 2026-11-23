@@ -86,6 +86,12 @@
     progressFill.style.width = '0';
   }
 
+  function escapeHTML(str) {
+    var div = document.createElement('div');
+    div.textContent = (str == null) ? '' : String(str);
+    return div.innerHTML;
+  }
+
   function showStatus(statusClass, html) {
     statusBox.className = statusClass;
     statusBox.innerHTML = html;
@@ -105,21 +111,21 @@
             stopPolling();
             showStatus('ok',
               '<strong>Ready</strong><pre>' +
-              'ID: ' + data.id + '\n' +
-              'IIIF base: ' + data.iiif_base_url + '\n' +
-              'Manifest: ' + data.manifest_url +
+              'ID: ' + escapeHTML(data.id) + '\n' +
+              'IIIF base: ' + escapeHTML(data.iiif_base_url) + '\n' +
+              'Manifest: ' + escapeHTML(data.manifest_url) +
               '</pre>');
             submitBtn.disabled = false;
           } else if (data.status === 'failed') {
             stopPolling();
             showStatus('error',
               '<strong>Conversion failed</strong>' +
-              (data.error_message ? '<pre>' + data.error_message + '</pre>' : ''));
+              (data.error_message ? '<pre>' + escapeHTML(data.error_message) + '</pre>' : ''));
             submitBtn.disabled = false;
           } else {
             showStatus('info',
               '<strong>Processing&hellip;</strong> <small>(checking every 3 s)</small>' +
-              '<pre>ID: ' + data.id + '\nStatus: ' + data.status + '</pre>');
+              '<pre>ID: ' + escapeHTML(data.id) + '\nStatus: ' + escapeHTML(data.status) + '</pre>');
           }
         })
         .catch(function (err) {
@@ -178,13 +184,13 @@
       if (xhr.status === 202) {
         showStatus('info',
           '<strong>Uploaded — converting&hellip;</strong>' +
-          '<pre>ID: ' + data.id + '</pre>');
+          '<pre>ID: ' + escapeHTML(data.id) + '</pre>');
         pollSheet(data.id);
       } else {
         submitBtn.disabled = false;
         showStatus('error',
-          '<strong>Upload failed (' + xhr.status + '):</strong> ' +
-          (data.error ? data.error : 'unknown error'));
+          '<strong>Upload failed (' + escapeHTML(xhr.status) + '):</strong> ' +
+          escapeHTML(data.error ? data.error : 'unknown error'));
       }
     });
 

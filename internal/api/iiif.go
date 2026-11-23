@@ -16,7 +16,6 @@ import (
 
 const (
 	msgSheetProcessing = "sheet is being processed; retry after a few seconds"
-	msgSheetFailed     = "sheet conversion failed"
 
 	manifestContentType = `application/ld+json;profile="http://iiif.io/api/presentation/3/context.json"`
 
@@ -48,6 +47,7 @@ func (handler *Handler) serveManifest(w http.ResponseWriter, r *http.Request) {
 	manifest := iiif.Build(readySheet, handler.baseURL, handler.iiifImageAPIVersion, handler.iiifImageAPILevel, width, height)
 
 	w.Header().Set("Content-Type", manifestContentType)
+	w.Header().Set("Cache-Control", handler.iiifCacheControl())
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(manifest); err != nil {
 		slog.ErrorContext(r.Context(), logMsgEncodeManifestFailed, "id", id, "err", err)
@@ -129,9 +129,13 @@ func (handler *Handler) resolveReadySheet(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusServiceUnavailable, msgSheetProcessing)
 		return nil
 	case model.StatusFailed:
-		writeError(w, http.StatusNotFound, msgSheetFailed)
+		writeError(w, http.StatusNotFound, msgSheetNotFound)
+		return nil
+	case model.StatusReady:
+		return s
+	default:
+		slog.ErrorContext(r.Context(), "unexpected sheet status", "id", id, "status", s.Status)
+		writeError(w, http.StatusInternalServerError, msgInternalError)
 		return nil
 	}
-
-	return s
 }

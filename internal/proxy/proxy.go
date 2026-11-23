@@ -82,7 +82,15 @@ func (imageProxy *Proxy) ServeInfoJSON(w http.ResponseWriter, r *http.Request, u
 	if err := json.NewDecoder(io.LimitReader(upstreamResp.Body, imageProxy.maxInfoBodySize)).Decode(&doc); err != nil {
 		return err
 	}
-	doc["@id"] = publicIIIFBaseURL
+	// Rewrite the identifier field for both Image API versions:
+	// v2 uses @id, v3 uses id (no @ prefix). Only rewrite keys that exist
+	// in the upstream response so we do not add fields that do not belong.
+	if _, ok := doc["@id"]; ok {
+		doc["@id"] = publicIIIFBaseURL
+	}
+	if _, ok := doc["id"]; ok {
+		doc["id"] = publicIIIFBaseURL
+	}
 
 	rewritten, err := json.Marshal(doc)
 	if err != nil {

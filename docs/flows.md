@@ -212,6 +212,14 @@ stateDiagram-v2
     deleted --> [*]: ID permanently returns 410
 ```
 
+**IIIF cache on delete.** The IIIF status lookup uses a short TTL cache (default 5 s). On
+`DELETE /sheets/{id}`, the cache entry is invalidated immediately — IIIF endpoints return
+`410 Gone` as soon as the delete completes, not after the TTL elapses.
+
+**Unknown status.** If a future migration adds a new status value that the IIIF routing
+code does not recognise, `resolveReadySheet` returns `500 Internal Server Error` and logs
+the unexpected value rather than silently proxying to the image server.
+
 ---
 
 ## Upload form flow

@@ -33,6 +33,7 @@ type ServerConfig struct {
 	ShutdownTimeout          time.Duration // graceful shutdown window; default 30s
 	Addr                    string
 	MaxUploadSize           int64         // bytes; default 1 GB
+	MultipartFormOverhead   int64         // bytes added to MaxUploadSize when limiting the full multipart body; default 1024
 	IIIFStatusCacheTTL      time.Duration // how long IIIF sheet status lookups are cached in memory; default 5s
 
 	// Auth — optional. Leave GitHubClientID empty to disable authentication.
@@ -45,6 +46,9 @@ type ServerConfig struct {
 	SessionMaxAge      int           // session lifetime in seconds; default 604800 (7 days)
 	ReadLoginRequired  bool          // gate IIIF endpoints; default false
 	ServiceCredential  string        // bearer token for machine-to-machine IIIF access
+
+	// CORS
+	CORSAllowedOrigins []string // parsed from CORS_ALLOWED_ORIGINS; default ["*"]
 }
 
 // WorkerConfig holds all configuration for the conversion worker process.
@@ -71,6 +75,10 @@ const (
 // LoadServer reads and validates the server configuration from the environment.
 func LoadServer() (*ServerConfig, error) {
 	maxUploadSize, err := envInt64("MAX_UPLOAD_SIZE", 1<<30)
+	if err != nil {
+		return nil, err
+	}
+	multipartFormOverhead, err := envInt64("MULTIPART_FORM_OVERHEAD", 1024)
 	if err != nil {
 		return nil, err
 	}
@@ -159,6 +167,7 @@ func LoadServer() (*ServerConfig, error) {
 		ShutdownTimeout:          shutdownTimeout,
 		Addr:                     envWithDefault("ADDR", ":8080"),
 		MaxUploadSize:            maxUploadSize,
+		MultipartFormOverhead:    multipartFormOverhead,
 		AuthRequired:             envWithDefault("AUTH_REQUIRED", "true") != "false",
 		GitHubClientID:           readEnv("GITHUB_CLIENT_ID"),
 		GitHubClientSecret:       readEnv("GITHUB_CLIENT_SECRET"),
@@ -169,6 +178,7 @@ func LoadServer() (*ServerConfig, error) {
 		IIIFStatusCacheTTL:       iiifStatusCacheTTL,
 		ReadLoginRequired:        envWithDefault("READ_LOGIN_REQUIRED", "false") == "true",
 		ServiceCredential:        readEnv("SERVICE_CREDENTIAL"),
+		CORSAllowedOrigins:       parseCORSOrigins(readEnv("CORS_ALLOWED_ORIGINS")),
 	}
 	required := []error{
 		requireNonEmpty("DB_NAME", dbName),
@@ -181,6 +191,12 @@ func LoadServer() (*ServerConfig, error) {
 		required = append(required, requireNonEmpty("S3_BUCKET", cfg.S3Bucket))
 	} else {
 		required = append(required, requireNonEmpty("STORAGE_ROOT", cfg.StorageRoot))
+	}
+	if cfg.AuthRequired && cfg.GitHubClientID != "" {
+		required = append(required, requireNonEmpty("GITHUB_CLIENT_SECRET", cfg.GitHubClientSecret))
+		if len(cfg.SessionKey) == 0 {
+			required = append(required, fmt.Errorf(errFmtMissingEnvVar, "SESSION_KEY"))
+		}
 	}
 	return cfg, checkRequired(required...)
 }
@@ -307,19 +323,35 @@ func checkRequired(errs ...error) error {
 	return nil
 }
 
-// parseTeams splits a comma-separated list of "org/team" pairs, skipping empty entries.
-func parseTeams(raw string) []string {
+// parseCSV splits a comma-separated string, trims whitespace, and skips empty entries.
+func parseCSV(raw string) []string {
 	if raw == "" {
 		return nil
 	}
 	parts := strings.Split(raw, ",")
-	teams := make([]string, 0, len(parts))
+	result := make([]string, 0, len(parts))
 	for _, part := range parts {
 		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			teams = append(teams, trimmed)
+			result = append(result, trimmed)
 		}
 	}
-	return teams
+	return result
+}
+
+// parseCORSOrigins splits a comma-separated list of allowed origins.
+// When the env var is unset or resolves to an empty list, it returns ["*"]
+// so IIIF endpoints are open by default.
+func parseCORSOrigins(raw string) []string {
+	origins := parseCSV(raw)
+	if len(origins) == 0 {
+		return []string{"*"}
+	}
+	return origins
+}
+
+// parseTeams splits a comma-separated list of "org/team" pairs, skipping empty entries.
+func parseTeams(raw string) []string {
+	return parseCSV(raw)
 }
 
 // loadSessionKey decodes the base64 SESSION_KEY env var.

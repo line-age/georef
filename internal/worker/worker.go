@@ -19,6 +19,7 @@ const (
 	errMsgOpenOriginalScan  = "open original scan"
 	errMsgCopyOriginalScan  = "copy original scan to temp"
 	errMsgCreateTempFile    = "create temp file"
+	errMsgCloseTempFile     = "close temp file"
 	errMsgOpenConvertedFile = "open converted file"
 	errMsgSavePyramidalTIFF = "save pyramidal tiff"
 
@@ -101,7 +102,7 @@ func (worker *Worker) convertSheet(ctx context.Context, sheet *model.Sheet) (pyr
 		return "", fmt.Errorf("%s: %w", errMsgCopyOriginalScan, err)
 	}
 	if err := srcFile.Close(); err != nil {
-		return "", fmt.Errorf("%s: %w", errMsgCreateTempFile, err)
+		return "", fmt.Errorf("%s: %w", errMsgCloseTempFile, err)
 	}
 
 	// vips writes to a file path; give it a second temp for the output.

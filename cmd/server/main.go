@@ -88,10 +88,12 @@ func main() {
 		IIIFImageAPIVersion:  cfg.IIIFImageAPIVersion,
 		IIIFImageAPILevel:    cfg.IIIFImageAPILevel,
 		RetryAfterSeconds:    cfg.RetryAfterSeconds,
-		MultipartMemoryLimit: cfg.MultipartMemoryLimit,
-		MaxUploadSize:        cfg.MaxUploadSize,
+		MultipartMemoryLimit:  cfg.MultipartMemoryLimit,
+		MaxUploadSize:         cfg.MaxUploadSize,
+		MultipartFormOverhead: cfg.MultipartFormOverhead,
 		IIIFStatusCacheTTL:   cfg.IIIFStatusCacheTTL,
 		OpenAPISpec:          georef.OpenAPISpec,
+		CORSAllowedOrigins:   cfg.CORSAllowedOrigins,
 	})
 
 	server := &http.Server{

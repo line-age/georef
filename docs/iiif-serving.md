@@ -99,11 +99,21 @@ flowchart TD
 A tile is just bytes — JPEG or PNG image data. The client uses it directly and
 doesn't care where it came from.
 
-`info.json` is different. It contains an `@id` field that tells IIIF viewers
+`info.json` is different. It contains an identifier field that tells IIIF viewers
 the base URL for requesting tiles. If Cantaloupe's internal address leaked into
-`@id`, viewers would try to fetch tiles from `cantaloupe:8182` — an address
-that only exists inside the cluster. The proxy replaces `@id` with the public
-URL before forwarding the response.
+that field, viewers would try to fetch tiles from `cantaloupe:8182` — an address
+that only exists inside the cluster. The proxy replaces the identifier with the
+public URL before forwarding the response.
+
+The field name differs by Image API version:
+
+| Image API version | Field name in info.json |
+|---|---|
+| v2 | `@id` |
+| v3 | `id` |
+
+The proxy rewrites whichever field exists in Cantaloupe's response, so the
+correct key is updated regardless of the configured Image API version.
 
 ### The `/iiif/2/` version prefix
 
@@ -149,6 +159,26 @@ The proxy overrides the upstream `Cache-Control` header on every IIIF response:
 
 This is set unconditionally so the value is always explicit, regardless of what
 Cantaloupe returns.
+
+### CORS
+
+IIIF endpoints include CORS headers so browser-based IIIF viewers (Allmaps
+Editor, Universal Viewer, Mirador) can fetch manifests, `info.json`, and tiles
+cross-origin.
+
+The allowed origins are controlled by `CORS_ALLOWED_ORIGINS` (default: `*`):
+
+| `CORS_ALLOWED_ORIGINS` | Behaviour |
+|---|---|
+| `*` (default) | `Access-Control-Allow-Origin: *` on every response |
+| Comma-separated list | The request `Origin` is checked; a match echoes that origin back and adds `Vary: Origin` so caches key on it correctly |
+
+Preflight `OPTIONS` requests are handled before any auth middleware, so a viewer
+can determine the allowed methods without presenting a session.
+
+When `READ_LOGIN_REQUIRED=true`, CORS headers are still included. The auth check
+is enforced by `RequireRead` on the GET route; preflight itself does not require
+auth since browsers send it without credentials.
 
 ### Connection reuse
 

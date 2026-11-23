@@ -21,6 +21,7 @@ const (
 	logMsgStoreOriginalScanFailed  = "store original scan"
 	logMsgCreateSheetRecordFailed  = "create sheet record"
 	logMsgCleanupOrphanScanFailed  = "cleanup orphan scan"
+
 )
 
 // uploadResponse is the JSON body returned on a successful upload.
@@ -32,7 +33,7 @@ type uploadResponse struct {
 }
 
 func (handler *Handler) uploadSheet(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, handler.maxUploadSize)
+	r.Body = http.MaxBytesReader(w, r.Body, handler.maxUploadSize+handler.multipartFormOverhead)
 
 	uploadFormData, err := parseUploadRequest(r, handler.multipartMemoryLimit)
 	if err != nil {
