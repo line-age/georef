@@ -11,11 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// retry_count is appended last because it was added via ALTER TABLE (migration 002).
-const columnList = `id, title, institution, source_url, rights_note, status, error_message, original_checksum, original_size, original_path, pyramid_path, uploader_github_id, created_at, updated_at, deleted_at, retry_count`
-
 const claimNext = `-- name: ClaimNext :one
-SELECT ` + columnList + ` FROM sheets
+SELECT id, title, institution, source_url, rights_note, status, error_message, original_checksum, original_size, original_path, pyramid_path, uploader_github_id, created_at, updated_at, deleted_at, retry_count, public FROM sheets
 WHERE status = 'processing'
   AND retry_count < $1
 ORDER BY created_at
@@ -23,12 +20,12 @@ LIMIT 1
 FOR UPDATE SKIP LOCKED
 `
 
-// ClaimNext atomically claims one processing sheet for the worker.
+// Atomically claims one processing sheet for the worker.
 // failed rows are permanently terminal (retry_count >= max_retries by definition)
 // and are never claimable, so only processing rows are checked.
 // SKIP LOCKED means concurrent workers never block each other.
-func (q *Queries) ClaimNext(ctx context.Context, maxRetries int32) (Sheet, error) {
-	row := q.db.QueryRow(ctx, claimNext, maxRetries)
+func (q *Queries) ClaimNext(ctx context.Context, retryCount int32) (Sheet, error) {
+	row := q.db.QueryRow(ctx, claimNext, retryCount)
 	var i Sheet
 	err := row.Scan(
 		&i.ID,
@@ -47,6 +44,7 @@ func (q *Queries) ClaimNext(ctx context.Context, maxRetries int32) (Sheet, error
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.RetryCount,
+		&i.Public,
 	)
 	return i, err
 }
@@ -56,13 +54,14 @@ const createSheet = `-- name: CreateSheet :one
 INSERT INTO sheets (
     id, title, institution, source_url, rights_note,
     status, original_checksum, original_size, original_path,
-    uploader_github_id
+    uploader_github_id, public
 ) VALUES (
     $1, $2, $3, $4, $5,
     'processing', $6, $7, $8,
-    $9
+    $9, $10
 )
-RETURNING ` + columnList
+RETURNING id, title, institution, source_url, rights_note, status, error_message, original_checksum, original_size, original_path, pyramid_path, uploader_github_id, created_at, updated_at, deleted_at, retry_count, public
+`
 
 type CreateSheetParams struct {
 	ID               string
@@ -74,6 +73,7 @@ type CreateSheetParams struct {
 	OriginalSize     int64
 	OriginalPath     string
 	UploaderGithubID pgtype.Int8
+	Public           bool
 }
 
 // sheets.sql — sqlc query definitions for the sheets table.
@@ -89,6 +89,7 @@ func (q *Queries) CreateSheet(ctx context.Context, arg CreateSheetParams) (Sheet
 		arg.OriginalSize,
 		arg.OriginalPath,
 		arg.UploaderGithubID,
+		arg.Public,
 	)
 	var i Sheet
 	err := row.Scan(
@@ -108,12 +109,14 @@ func (q *Queries) CreateSheet(ctx context.Context, arg CreateSheetParams) (Sheet
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.RetryCount,
+		&i.Public,
 	)
 	return i, err
 }
 
 const getSheetByID = `-- name: GetSheetByID :one
-SELECT ` + columnList + ` FROM sheets WHERE id = $1 LIMIT 1`
+SELECT id, title, institution, source_url, rights_note, status, error_message, original_checksum, original_size, original_path, pyramid_path, uploader_github_id, created_at, updated_at, deleted_at, retry_count, public FROM sheets WHERE id = $1 LIMIT 1
+`
 
 func (q *Queries) GetSheetByID(ctx context.Context, id string) (Sheet, error) {
 	row := q.db.QueryRow(ctx, getSheetByID, id)
@@ -135,12 +138,14 @@ func (q *Queries) GetSheetByID(ctx context.Context, id string) (Sheet, error) {
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.RetryCount,
+		&i.Public,
 	)
 	return i, err
 }
 
 const getSheetByIDForUpdate = `-- name: GetSheetByIDForUpdate :one
-SELECT ` + columnList + ` FROM sheets WHERE id = $1 LIMIT 1 FOR UPDATE`
+SELECT id, title, institution, source_url, rights_note, status, error_message, original_checksum, original_size, original_path, pyramid_path, uploader_github_id, created_at, updated_at, deleted_at, retry_count, public FROM sheets WHERE id = $1 LIMIT 1 FOR UPDATE
+`
 
 func (q *Queries) GetSheetByIDForUpdate(ctx context.Context, id string) (Sheet, error) {
 	row := q.db.QueryRow(ctx, getSheetByIDForUpdate, id)
@@ -162,12 +167,13 @@ func (q *Queries) GetSheetByIDForUpdate(ctx context.Context, id string) (Sheet, 
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.RetryCount,
+		&i.Public,
 	)
 	return i, err
 }
 
 const listSheets = `-- name: ListSheets :many
-SELECT ` + columnList + ` FROM sheets
+SELECT id, title, institution, source_url, rights_note, status, error_message, original_checksum, original_size, original_path, pyramid_path, uploader_github_id, created_at, updated_at, deleted_at, retry_count, public FROM sheets
 WHERE status != 'deleted'
   AND ($3::sheet_status IS NULL OR status = $3)
 ORDER BY created_at DESC
@@ -206,6 +212,7 @@ func (q *Queries) ListSheets(ctx context.Context, arg ListSheetsParams) ([]Sheet
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.RetryCount,
+			&i.Public,
 		); err != nil {
 			return nil, err
 		}
@@ -226,19 +233,20 @@ UPDATE sheets SET
     error_message = $2,
     updated_at    = now()
 WHERE id = $1
-RETURNING ` + columnList
+RETURNING id, title, institution, source_url, rights_note, status, error_message, original_checksum, original_size, original_path, pyramid_path, uploader_github_id, created_at, updated_at, deleted_at, retry_count, public
+`
 
 type RecordConversionFailureParams struct {
 	ID           string
 	ErrorMessage pgtype.Text
-	MaxRetries   int32
+	RetryCount   int32
 }
 
-// RecordConversionFailure increments retry_count and decides the new status atomically.
-// When retry_count+1 reaches maxRetries the sheet is marked 'failed' (terminal);
-// otherwise it goes back to 'processing' so the worker will retry it.
+// Increments retry_count and decides the new status atomically.
+// When retry_count + 1 reaches max_retries the sheet is marked failed
+// permanently; otherwise it goes back to processing for another attempt.
 func (q *Queries) RecordConversionFailure(ctx context.Context, arg RecordConversionFailureParams) (Sheet, error) {
-	row := q.db.QueryRow(ctx, recordConversionFailure, arg.ID, arg.ErrorMessage, arg.MaxRetries)
+	row := q.db.QueryRow(ctx, recordConversionFailure, arg.ID, arg.ErrorMessage, arg.RetryCount)
 	var i Sheet
 	err := row.Scan(
 		&i.ID,
@@ -257,6 +265,7 @@ func (q *Queries) RecordConversionFailure(ctx context.Context, arg RecordConvers
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.RetryCount,
+		&i.Public,
 	)
 	return i, err
 }
@@ -268,7 +277,8 @@ UPDATE sheets SET
     error_message   = NULL,
     updated_at      = now()
 WHERE id = $1
-RETURNING ` + columnList
+RETURNING id, title, institution, source_url, rights_note, status, error_message, original_checksum, original_size, original_path, pyramid_path, uploader_github_id, created_at, updated_at, deleted_at, retry_count, public
+`
 
 type SetSheetReadyParams struct {
 	ID          string
@@ -295,6 +305,7 @@ func (q *Queries) SetSheetReady(ctx context.Context, arg SetSheetReadyParams) (S
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.RetryCount,
+		&i.Public,
 	)
 	return i, err
 }
@@ -305,7 +316,8 @@ UPDATE sheets SET
     deleted_at  = now(),
     updated_at  = now()
 WHERE id = $1 AND status != 'deleted'
-RETURNING ` + columnList
+RETURNING id, title, institution, source_url, rights_note, status, error_message, original_checksum, original_size, original_path, pyramid_path, uploader_github_id, created_at, updated_at, deleted_at, retry_count, public
+`
 
 func (q *Queries) SoftDeleteSheet(ctx context.Context, id string) (Sheet, error) {
 	row := q.db.QueryRow(ctx, softDeleteSheet, id)
@@ -327,6 +339,7 @@ func (q *Queries) SoftDeleteSheet(ctx context.Context, id string) (Sheet, error)
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.RetryCount,
+		&i.Public,
 	)
 	return i, err
 }
@@ -337,9 +350,11 @@ UPDATE sheets SET
     institution         = $3,
     source_url          = $4,
     rights_note         = $5,
+    public              = $6,
     updated_at          = now()
 WHERE id = $1
-RETURNING ` + columnList
+RETURNING id, title, institution, source_url, rights_note, status, error_message, original_checksum, original_size, original_path, pyramid_path, uploader_github_id, created_at, updated_at, deleted_at, retry_count, public
+`
 
 type UpdateSheetParams struct {
 	ID          string
@@ -347,6 +362,7 @@ type UpdateSheetParams struct {
 	Institution pgtype.Text
 	SourceUrl   pgtype.Text
 	RightsNote  pgtype.Text
+	Public      bool
 }
 
 func (q *Queries) UpdateSheet(ctx context.Context, arg UpdateSheetParams) (Sheet, error) {
@@ -356,6 +372,7 @@ func (q *Queries) UpdateSheet(ctx context.Context, arg UpdateSheetParams) (Sheet
 		arg.Institution,
 		arg.SourceUrl,
 		arg.RightsNote,
+		arg.Public,
 	)
 	var i Sheet
 	err := row.Scan(
@@ -375,6 +392,7 @@ func (q *Queries) UpdateSheet(ctx context.Context, arg UpdateSheetParams) (Sheet
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.RetryCount,
+		&i.Public,
 	)
 	return i, err
 }

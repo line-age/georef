@@ -231,6 +231,31 @@ func (authenticator *Authenticator) ReadLoginEnabled() bool {
 	return !authenticator.disabled && authenticator.readLoginRequired
 }
 
+// CheckReadAuth reports whether r carries a valid session or service credential.
+// Used by per-sheet visibility checks: a private sheet requires auth even when
+// READ_LOGIN_REQUIRED is false globally.
+// Always returns true when auth is disabled.
+func (authenticator *Authenticator) CheckReadAuth(r *http.Request) bool {
+	if authenticator.disabled {
+		return true
+	}
+	if authenticator.serviceCredential != "" {
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, bearerPrefix) {
+			provided := authHeader[len(bearerPrefix):]
+			if subtle.ConstantTimeCompare([]byte(provided), []byte(authenticator.serviceCredential)) == 1 {
+				return true
+			}
+		}
+	}
+	session, err := authenticator.sessionStore.Get(r, sessionName)
+	if err != nil || session.IsNew {
+		return false
+	}
+	authenticated, ok := session.Values[sessionKeyAuth].(bool)
+	return ok && authenticated
+}
+
 // RequireRead is middleware that gates IIIF read access when READ_LOGIN_REQUIRED is true.
 // A request passes when:
 //   - read-login is off, or auth is disabled

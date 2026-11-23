@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	msgSheetProcessing = "sheet is being processed; retry after a few seconds"
+	msgSheetProcessing  = "sheet is being processed; retry after a few seconds"
+	msgSheetUnauthorized = "authentication required to access this sheet"
 
 	manifestContentType = `application/ld+json;profile="http://iiif.io/api/presentation/3/context.json"`
 
@@ -47,7 +48,7 @@ func (handler *Handler) serveManifest(w http.ResponseWriter, r *http.Request) {
 	manifest := iiif.Build(readySheet, handler.baseURL, handler.iiifImageAPIVersion, handler.iiifImageAPILevel, width, height)
 
 	w.Header().Set("Content-Type", manifestContentType)
-	w.Header().Set("Cache-Control", handler.iiifCacheControl())
+	w.Header().Set("Cache-Control", handler.iiifCacheControl(readySheet))
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(manifest); err != nil {
 		slog.ErrorContext(r.Context(), logMsgEncodeManifestFailed, "id", id, "err", err)
@@ -67,7 +68,7 @@ func (handler *Handler) serveInfoJSON(w http.ResponseWriter, r *http.Request) {
 	publicIIIFBase := handler.baseURL + "/iiif/" + id
 	upstreamURL := handler.imageInfoURL(id)
 
-	if err := handler.imageProxy.ServeInfoJSON(w, r, upstreamURL, publicIIIFBase, handler.iiifCacheControl()); err != nil {
+	if err := handler.imageProxy.ServeInfoJSON(w, r, upstreamURL, publicIIIFBase, handler.iiifCacheControl(readySheet)); err != nil {
 		slog.ErrorContext(r.Context(), logMsgProxyInfoFailed, "id", id, "err", err)
 		writeError(w, http.StatusBadGateway, "image server unavailable")
 	}
@@ -86,7 +87,7 @@ func (handler *Handler) serveTile(w http.ResponseWriter, r *http.Request) {
 	tileSuffix := chi.URLParam(r, "*")
 	upstreamURL := handler.imageTileURL(id, tileSuffix)
 
-	if err := handler.imageProxy.ServeTile(w, r, upstreamURL, handler.iiifCacheControl()); err != nil {
+	if err := handler.imageProxy.ServeTile(w, r, upstreamURL, handler.iiifCacheControl(readySheet)); err != nil {
 		slog.ErrorContext(r.Context(), logMsgProxyTileFailed, "id", id, "err", err)
 		var streamErr proxy.ErrStreamInterrupted
 		if !errors.As(err, &streamErr) {
@@ -132,6 +133,10 @@ func (handler *Handler) resolveReadySheet(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, msgSheetNotFound)
 		return nil
 	case model.StatusReady:
+		if !s.Public && !handler.authenticator.CheckReadAuth(r) {
+			writeError(w, http.StatusUnauthorized, msgSheetUnauthorized)
+			return nil
+		}
 		return s
 	default:
 		slog.ErrorContext(r.Context(), "unexpected sheet status", "id", id, "status", s.Status)

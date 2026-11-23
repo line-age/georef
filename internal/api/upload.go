@@ -67,6 +67,7 @@ func (handler *Handler) uploadSheet(w http.ResponseWriter, r *http.Request) {
 		Institution:      uploadFormData.Institution,
 		SourceURL:        uploadFormData.SourceURL,
 		RightsNote:       uploadFormData.RightsNote,
+		Public:           uploadFormData.Public,
 		OriginalChecksum: checksum,
 		OriginalSize:     size,
 		OriginalPath:     originalPath,

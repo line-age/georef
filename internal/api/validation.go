@@ -27,6 +27,7 @@ type uploadRequest struct {
 	Institution string
 	SourceURL   string
 	RightsNote  string
+	Public      bool // true unless the caller explicitly sends public=false
 	File        multipart.File
 }
 
@@ -51,6 +52,7 @@ func parseUploadRequest(request *http.Request, memoryLimit int64) (*uploadReques
 		Institution: request.FormValue("institution"),
 		SourceURL:   request.FormValue("source_url"),
 		RightsNote:  request.FormValue("rights_note"),
+		Public:      request.FormValue("public") != "false", // empty → true; explicit "false" → false
 		File:        file,
 	}, nil
 }

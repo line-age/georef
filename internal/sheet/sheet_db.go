@@ -38,6 +38,7 @@ func (repository *repository) Create(ctx context.Context, sheet *model.Sheet) er
 		OriginalSize:     sheet.OriginalSize,
 		OriginalPath:     sheet.OriginalPath,
 		UploaderGithubID: toPgNullableInt64(sheet.UploaderGitHubID),
+		Public:           sheet.Public,
 	})
 	return err
 }
@@ -100,6 +101,7 @@ func (repository *repository) Update(ctx context.Context, id string, mutate func
 		Institution: pgtype.Text{String: sheet.Institution, Valid: sheet.Institution != ""},
 		SourceUrl:   pgtype.Text{String: sheet.SourceURL, Valid: sheet.SourceURL != ""},
 		RightsNote:  pgtype.Text{String: sheet.RightsNote, Valid: sheet.RightsNote != ""},
+		Public:      sheet.Public,
 	})
 	if err != nil {
 		return nil, err
@@ -152,7 +154,7 @@ func (repository *repository) ProcessNext(ctx context.Context, maxRetries int, p
 		_, err = transactionQueries.RecordConversionFailure(ctx, dbgen.RecordConversionFailureParams{
 			ID:           sheet.ID,
 			ErrorMessage: pgtype.Text{String: processorErr.Error(), Valid: true},
-			MaxRetries:   int32(maxRetries),
+			RetryCount:   int32(maxRetries),
 		})
 	} else {
 		_, err = transactionQueries.SetSheetReady(ctx, dbgen.SetSheetReadyParams{
@@ -192,6 +194,7 @@ func toSheetModel(row dbgen.Sheet) *model.Sheet {
 		OriginalSize:     row.OriginalSize,
 		OriginalPath:     row.OriginalPath,
 		PyramidPath:      row.PyramidPath.String,
+		Public:           row.Public,
 		UploaderGitHubID: uploaderID,
 		CreatedAt:        row.CreatedAt.Time,
 		UpdatedAt:        row.UpdatedAt.Time,

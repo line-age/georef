@@ -17,6 +17,9 @@ func (handler *Handler) Routes() http.Handler {
 	// Upload form
 	router.Get("/", handler.serveUploadForm)
 
+	// Sheet management page — lists all sheets with visibility controls.
+	router.With(handler.authenticator.RequireWrite).Get("/manage", handler.serveManageSheets)
+
 	// API reference — Swagger UI at /docs, raw spec at /docs/openapi.yaml
 	router.Get("/docs", handler.serveAPIDocs)
 	router.Get("/docs/openapi.yaml", handler.serveOpenAPISpec)

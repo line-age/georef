@@ -7,11 +7,13 @@ How write access is controlled and how the GitHub OAuth flow works.
 | Action | Requirement |
 |---|---|
 | `GET /sheets`, `GET /sheets/{id}` | None — public |
-| `GET /iiif/…` | None by default; GitHub session or service credential when `READ_LOGIN_REQUIRED=true` |
+| `GET /iiif/…` (public sheet) | None by default; GitHub session or service credential when `READ_LOGIN_REQUIRED=true` |
+| `GET /iiif/…` (private sheet) | GitHub session or service credential regardless of `READ_LOGIN_REQUIRED` |
 | `POST /sheets` | GitHub session in an allowed team |
 | `PATCH /sheets/{id}` | GitHub session in an allowed team |
 | `DELETE /sheets/{id}` | GitHub session in an allowed team |
 | `GET /` (upload form) | None — form is public; upload triggers auth check |
+| `GET /manage` | GitHub session in an allowed team |
 
 Write endpoints are gated by the `RequireWrite` middleware. IIIF endpoints are gated by
 `RequireRead` when `READ_LOGIN_REQUIRED=true`; otherwise `RequireRead` is a passthrough.
@@ -174,3 +176,4 @@ When disabled:
 | `GET` | `/auth/login` | No | Redirect to GitHub OAuth |
 | `GET` | `/auth/callback` | No | Handle GitHub callback; create session |
 | `POST` | `/auth/logout` | No | Clear session; redirect to `/` |
+| `GET` | `/manage` | Write session | Sheet management page — list, visibility toggle |

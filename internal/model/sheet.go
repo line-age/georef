@@ -37,6 +37,10 @@ type Sheet struct {
 	// Pyramid file — written by the worker on successful conversion.
 	PyramidPath string // storage-relative path, e.g. sheets/{id}/pyramid.tif; empty until ready
 
+	// Visibility — default true (public). The uploader or an admin can mark a sheet
+	// private; IIIF endpoints return 401 for private sheets without a valid session.
+	Public bool
+
 	// Nullable: not yet confirmed as required. See docs/model.md.
 	UploaderGitHubID *int64
 

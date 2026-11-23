@@ -5,11 +5,11 @@
 INSERT INTO sheets (
     id, title, institution, source_url, rights_note,
     status, original_checksum, original_size, original_path,
-    uploader_github_id
+    uploader_github_id, public
 ) VALUES (
     $1, $2, $3, $4, $5,
     'processing', $6, $7, $8,
-    $9
+    $9, $10
 )
 RETURNING *;
 
@@ -22,7 +22,7 @@ SELECT * FROM sheets WHERE id = $1 LIMIT 1 FOR UPDATE;
 -- name: ListSheets :many
 SELECT * FROM sheets
 WHERE status != 'deleted'
-  AND ($3::sheet_status IS NULL OR status = $3)
+  AND (sqlc.narg('status')::sheet_status IS NULL OR status = sqlc.narg('status'))
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2;
 
@@ -32,6 +32,7 @@ UPDATE sheets SET
     institution         = $3,
     source_url          = $4,
     rights_note         = $5,
+    public              = $6,
     updated_at          = now()
 WHERE id = $1
 RETURNING *;

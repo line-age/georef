@@ -93,11 +93,13 @@ func (handler *Handler) listSheets(w http.ResponseWriter, r *http.Request) {
 
 // updateSheetRequest is the JSON body accepted by PATCH /sheets/{id}.
 // All editable fields are replaced; title is required.
+// Public is a pointer so an omitted field leaves the current value unchanged.
 type updateSheetRequest struct {
 	Title       string `json:"title"`
 	Institution string `json:"institution"`
 	SourceURL   string `json:"source_url"`
 	RightsNote  string `json:"rights_note"`
+	Public      *bool  `json:"public"`
 }
 
 // updateSheet handles PATCH /sheets/{id}.
@@ -127,6 +129,9 @@ func (handler *Handler) updateSheet(w http.ResponseWriter, r *http.Request) {
 		s.Institution = updateRequest.Institution
 		s.SourceURL = updateRequest.SourceURL
 		s.RightsNote = updateRequest.RightsNote
+		if updateRequest.Public != nil {
+			s.Public = *updateRequest.Public
+		}
 		return nil
 	})
 	if updateErr != nil {

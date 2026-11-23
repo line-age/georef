@@ -48,6 +48,12 @@
   <label for="file">Scan file (TIFF or JPEG) <span style="color:red">*</span></label>
   <input type="file" id="file" name="file" accept="image/tiff,image/jpeg,.tif,.tiff,.jpg,.jpeg" required>
 
+  <label for="public">Visibility</label>
+  <select id="public" name="public" style="margin-bottom:1rem">
+    <option value="true" selected>Public</option>
+    <option value="false">Private</option>
+  </select>
+
   <button type="submit" id="submitBtn">Upload</button>
 </form>
 

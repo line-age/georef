@@ -46,6 +46,11 @@ flowchart TD
   header for server-side callers that cannot use a browser session. When
   `READ_LOGIN_REQUIRED` is false (the default), `RequireRead` is a passthrough.
   See `docs/auth.md` for the full read-login design.
+- **Per-sheet private access.** Even when `READ_LOGIN_REQUIRED=false`, a sheet
+  with `public=false` requires a valid session or service credential. This check
+  runs inside `resolveReadySheet` after the status check and returns `401` for
+  unauthenticated requests. The `Cache-Control` header is always `private` for
+  private sheets, regardless of the global flag.
 - **Disabled mode** — when `GITHUB_CLIENT_ID` is unset or `AUTH_REQUIRED=false`,
   both `RequireWrite` and `RequireRead` are passthroughs and the `/auth/*` routes
   redirect immediately to `/`.
@@ -88,6 +93,9 @@ flowchart TD
 - **IIIF URLs are stable from this moment.** The sheet URL, IIIF base URL and
   manifest URL returned in the `202` response never change, even before
   conversion completes.
+- **Visibility defaults to public.** The uploader can set `public=false` in the
+  form or API to mark a sheet private at upload time. Visibility can be changed
+  at any time via `PATCH /sheets/{id}` or via the `/manage` page.
 
 ---
 

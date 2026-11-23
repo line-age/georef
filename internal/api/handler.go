@@ -86,6 +86,7 @@ type sheetResponse struct {
 	Institution      string     `json:"institution,omitempty"`
 	SourceURL        string     `json:"source_url,omitempty"`
 	RightsNote       string     `json:"rights_note,omitempty"`
+	Public           bool       `json:"public"`
 	Status           string     `json:"status"`
 	ErrorMessage     string     `json:"error_message,omitempty"`
 	RetryCount       int32      `json:"retry_count"`
@@ -106,6 +107,7 @@ func (handler *Handler) toSheetResponse(sheetRecord *model.Sheet) sheetResponse 
 		Institution:      sheetRecord.Institution,
 		SourceURL:        sheetRecord.SourceURL,
 		RightsNote:       sheetRecord.RightsNote,
+		Public:           sheetRecord.Public,
 		Status:           string(sheetRecord.Status),
 		ErrorMessage:     sheetRecord.ErrorMessage,
 		RetryCount:       sheetRecord.RetryCount,
@@ -120,10 +122,10 @@ func (handler *Handler) toSheetResponse(sheetRecord *model.Sheet) sheetResponse 
 }
 
 // iiifCacheControl returns the Cache-Control value for IIIF responses.
-// When read-login is enabled, tiles and info.json are marked private so CDNs
-// do not cache restricted content. When read-login is off, they are public.
-func (handler *Handler) iiifCacheControl() string {
-	if handler.authenticator.ReadLoginEnabled() {
+// Private when READ_LOGIN_REQUIRED is on (all tiles gated), or when the
+// sheet itself is private (per-sheet visibility takes precedence).
+func (handler *Handler) iiifCacheControl(sheetRecord *model.Sheet) string {
+	if handler.authenticator.ReadLoginEnabled() || !sheetRecord.Public {
 		return "private"
 	}
 	return "public"

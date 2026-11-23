@@ -322,6 +322,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		"../../db/migrations/001_create_sheets.up.sql",
 		"../../db/migrations/002_add_retry_count.up.sql",
 		"../../db/migrations/003_fix_claimable_idx.up.sql",
+		"../../db/migrations/004_add_public_to_sheets.up.sql",
 	}
 	for _, path := range files {
 		sql, err := os.ReadFile(path)
