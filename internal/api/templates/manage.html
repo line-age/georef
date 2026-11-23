@@ -141,13 +141,7 @@
     fetch('/sheets/' + id, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title:        row.dataset.title,
-        institution:  row.dataset.institution,
-        source_url:   row.dataset.sourceUrl,
-        rights_note:  row.dataset.rightsNote,
-        public:       nextPublic
-      })
+      body: JSON.stringify({ public: nextPublic })
     })
     .then(function (resp) {
       if (!resp.ok) { return resp.json().then(function (body) { throw new Error(body.error || resp.status); }); }

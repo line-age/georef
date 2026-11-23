@@ -47,6 +47,11 @@ func (handler *Handler) uploadSheet(w http.ResponseWriter, r *http.Request) {
 	}
 	defer uploadFormData.File.Close()
 
+	if uploadFormData.FileSize > handler.maxUploadSize {
+		writeError(w, http.StatusRequestEntityTooLarge, msgFileTooLarge)
+		return
+	}
+
 	if err := uploadFormData.validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

@@ -74,10 +74,16 @@ func newIIIFCORSMiddleware(allowedOrigins []string) func(http.Handler) http.Hand
 			if allowAll {
 				w.Header().Set("Access-Control-Allow-Origin", "*")
 			} else {
+				// Vary must be set unconditionally when an allowlist is configured
+				// so that a shared cache does not reuse a no-ACAO response for an
+				// allowed viewer.
+				w.Header().Add("Vary", "Origin")
 				requestOrigin := r.Header.Get("Origin")
 				if allowed[requestOrigin] {
 					w.Header().Set("Access-Control-Allow-Origin", requestOrigin)
-					w.Header().Add("Vary", "Origin")
+					// Allow credentialed requests (session cookies) from trusted origins.
+					// Never set alongside the wildcard — browsers reject that combination.
+					w.Header().Set("Access-Control-Allow-Credentials", "true")
 				}
 			}
 			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")

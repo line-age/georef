@@ -95,15 +95,29 @@ func (cached *CachedAccessor) List(ctx context.Context, filter ListFilter) ([]*m
 }
 
 func (cached *CachedAccessor) Update(ctx context.Context, id string, mutate func(*model.Sheet) error) (*model.Sheet, error) {
-	return cached.inner.Update(ctx, id, mutate)
+	updated, err := cached.inner.Update(ctx, id, mutate)
+	if err != nil {
+		return nil, err
+	}
+	cached.mu.Lock()
+	delete(cached.cache, id)
+	cached.mu.Unlock()
+	return updated, nil
 }
 
 func (cached *CachedAccessor) SoftDelete(ctx context.Context, id string) error {
 	if err := cached.inner.SoftDelete(ctx, id); err != nil {
 		return err
 	}
+	// Store a tombstone rather than deleting the entry. An in-flight GetByID may
+	// have already fetched the pre-delete row from the DB and is waiting on the
+	// write lock; when it acquires the lock it will find the tombstone via the
+	// double-check and return that instead of overwriting it with stale data.
 	cached.mu.Lock()
-	delete(cached.cache, id)
+	cached.cache[id] = cachedEntry{
+		sheet:     &model.Sheet{Status: model.StatusDeleted},
+		expiresAt: time.Now().Add(cached.ttl),
+	}
 	cached.mu.Unlock()
 	return nil
 }

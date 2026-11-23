@@ -22,7 +22,8 @@ const (
 	msgSheetGone       = "sheet permanently removed"
 	msgInvalidJSON     = "invalid JSON body"
 	msgInternalError   = "internal server error"
-	msgTitleRequiredPatch = "title is required"
+	msgTitleRequiredPatch  = "title is required when updating metadata"
+	msgNothingToUpdate     = "provide title or public"
 
 	msgInvalidLimit  = "limit must be an integer between 1 and 100"
 	msgInvalidOffset = "offset must be a non-negative integer"
@@ -114,8 +115,15 @@ func (handler *Handler) updateSheet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if updateRequest.Title == "" {
+	// A visibility-only PATCH (title omitted, public set) is valid and touches
+	// only the public column. Any other update requires a non-empty title.
+	visibilityOnly := updateRequest.Title == "" && updateRequest.Public != nil
+	if !visibilityOnly && updateRequest.Title == "" {
 		writeError(w, http.StatusBadRequest, msgTitleRequiredPatch)
+		return
+	}
+	if updateRequest.Title == "" && updateRequest.Public == nil {
+		writeError(w, http.StatusBadRequest, msgNothingToUpdate)
 		return
 	}
 
@@ -125,10 +133,12 @@ func (handler *Handler) updateSheet(w http.ResponseWriter, r *http.Request) {
 		if s.Status == model.StatusDeleted {
 			return errDeletedSheet
 		}
-		s.Title = updateRequest.Title
-		s.Institution = updateRequest.Institution
-		s.SourceURL = updateRequest.SourceURL
-		s.RightsNote = updateRequest.RightsNote
+		if !visibilityOnly {
+			s.Title = updateRequest.Title
+			s.Institution = updateRequest.Institution
+			s.SourceURL = updateRequest.SourceURL
+			s.RightsNote = updateRequest.RightsNote
+		}
 		if updateRequest.Public != nil {
 			s.Public = *updateRequest.Public
 		}

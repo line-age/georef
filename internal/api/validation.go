@@ -29,6 +29,7 @@ type uploadRequest struct {
 	RightsNote  string
 	Public      bool // true unless the caller explicitly sends public=false
 	File        multipart.File
+	FileSize    int64
 }
 
 // parseUploadRequest extracts the multipart form fields into an uploadRequest.
@@ -43,7 +44,7 @@ func parseUploadRequest(request *http.Request, memoryLimit int64) (*uploadReques
 		}
 		return nil, errors.New(msgInvalidForm)
 	}
-	file, _, err := request.FormFile("file")
+	file, header, err := request.FormFile("file")
 	if err != nil {
 		return nil, errors.New(msgFileRequired)
 	}
@@ -54,6 +55,7 @@ func parseUploadRequest(request *http.Request, memoryLimit int64) (*uploadReques
 		RightsNote:  request.FormValue("rights_note"),
 		Public:      request.FormValue("public") != "false", // empty → true; explicit "false" → false
 		File:        file,
+		FileSize:    header.Size,
 	}, nil
 }
 
