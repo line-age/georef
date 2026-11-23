@@ -7,6 +7,10 @@
 <style>
   *, *::before, *::after { box-sizing: border-box; }
   body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; color: #111; }
+  nav { display: flex; gap: 1.25rem; margin-bottom: 2rem; font-size: .875rem; }
+  nav a { color: #0969da; text-decoration: none; font-weight: 600; }
+  nav a:hover { text-decoration: underline; }
+  nav a.active { color: #111; pointer-events: none; }
   h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
   label { display: block; font-size: .875rem; font-weight: 600; margin-bottom: .25rem; }
   input[type=text], input[type=url], input[type=file], textarea {
@@ -30,6 +34,10 @@
 </style>
 </head>
 <body>
+<nav>
+  <a href="/" class="active">Upload</a>
+  <a href="/manage">Manage sheets</a>
+</nav>
 <h1>Upload scan</h1>
 
 <form id="uploadForm" novalidate>

@@ -8,6 +8,10 @@
   *, *::before, *::after { box-sizing: border-box; }
   body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #111; }
   h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
+  nav { display: flex; gap: 1.25rem; margin-bottom: 2rem; font-size: .875rem; }
+  nav a { color: #0969da; text-decoration: none; font-weight: 600; }
+  nav a:hover { text-decoration: underline; }
+  nav a.active { color: #111; pointer-events: none; }
   table { width: 100%; border-collapse: collapse; font-size: .875rem; }
   th { text-align: left; padding: .5rem .75rem; border-bottom: 2px solid #e5e7eb; font-weight: 600; white-space: nowrap; }
   td { padding: .5rem .75rem; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
@@ -42,6 +46,10 @@
 </style>
 </head>
 <body>
+<nav>
+  <a href="/">Upload</a>
+  <a href="/manage" class="active">Manage sheets</a>
+</nav>
 <h1>Manage sheets</h1>
 
 {{if .Sheets}}
