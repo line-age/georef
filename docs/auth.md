@@ -94,8 +94,8 @@ A request that passes neither receives `401 Unauthorized`.
 When auth is entirely disabled (`GITHUB_CLIENT_ID` unset), `READ_LOGIN_REQUIRED`
 has no effect — `RequireRead` is a passthrough regardless.
 
-When read login is on, IIIF responses carry `Cache-Control: private` so CDNs do
-not cache restricted content. When off, they carry `Cache-Control: public`.
+IIIF responses carry `Cache-Control: private` when read login is on, or when the
+sheet itself is private (`public=false`). Otherwise they carry `Cache-Control: public`.
 
 ## Setting up the GitHub OAuth App
 
@@ -132,6 +132,36 @@ openssl rand -base64 32
 Set the output as `SESSION_KEY`. Keep it secret. Rotating it invalidates all
 active sessions immediately (everyone is logged out).
 
+## AUTH_REQUIRED vs READ_LOGIN_REQUIRED
+
+These two flags are independent. It is a common mistake to conflate them.
+
+| Flag | Controls | Default |
+|---|---|---|
+| `AUTH_REQUIRED` | Write access — `POST`, `PATCH`, `DELETE /sheets`, `/manage` | `true` |
+| `READ_LOGIN_REQUIRED` | IIIF read access — `GET /iiif/…` for **all** sheets globally | `false` |
+
+They can be set in any combination:
+
+| `AUTH_REQUIRED` | `READ_LOGIN_REQUIRED` | Practical meaning |
+|---|---|---|
+| `true` | `false` | Writers must log in; anyone can view IIIF tiles (typical production) |
+| `true` | `true` | Writers must log in; viewers must also authenticate or use a service credential |
+| `false` | `false` | No auth anywhere — local development without GitHub configured |
+| `false` | `true` | Writes are open but IIIF is gated — rarely useful |
+
+A third layer of access control sits below these two flags: **per-sheet
+visibility**. A sheet with `public=false` requires a valid session or service
+credential on its IIIF endpoints even when `READ_LOGIN_REQUIRED=false`. This is
+checked per request inside `resolveReadySheet` after the status check, not by a
+middleware. `AUTH_REQUIRED=false` disables this check along with the rest of
+auth.
+
+The service credential (`SERVICE_CREDENTIAL`) is accepted by `RequireRead` and
+the per-sheet private check, but **not** by `RequireWrite`. Machine-to-machine
+callers (e.g. the Allmaps Tile Server) can read tiles without a browser session
+but cannot upload or delete sheets.
+
 ## Configuration
 
 | Env var | Required | Description |
@@ -143,7 +173,7 @@ active sessions immediately (everyone is logged out).
 | `SESSION_KEY` | When auth enabled | Base64-encoded signing key (≥ 32 bytes); generate with `openssl rand -base64 32` |
 | `SESSION_MAX_AGE` | No | Session lifetime in seconds; default `604800` (7 days) |
 | `SECURE_COOKIES` | No | Set `false` for local development over HTTP; default `true` |
-| `READ_LOGIN_REQUIRED` | No | Set `true` to require auth on all IIIF endpoints; default `false` |
+| `READ_LOGIN_REQUIRED` | No | Set `true` to require auth on all IIIF endpoints globally; default `false`. Independent of `AUTH_REQUIRED` — see section above |
 | `SERVICE_CREDENTIAL` | When `READ_LOGIN_REQUIRED=true` | Bearer token for server-side IIIF access |
 
 The OAuth callback URL is not a separate variable — the server builds it as
