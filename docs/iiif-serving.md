@@ -150,12 +150,14 @@ so any identifier containing a slash would return 403.
 
 ### Cache-Control
 
-The proxy overrides the upstream `Cache-Control` header on every IIIF response:
+The proxy overrides the upstream `Cache-Control` header on every IIIF response.
+The value is `private` when either condition holds; otherwise `public`:
 
-| `READ_LOGIN_REQUIRED` | `Cache-Control` sent to client |
+| Condition | `Cache-Control` sent to client |
 |---|---|
-| `false` (default) | `public` — CDNs may cache freely |
-| `true` | `private` — CDNs must not cache; each viewer fetches directly |
+| `READ_LOGIN_REQUIRED=true` | `private` — all tiles gated; CDNs must not cache |
+| Sheet has `public=false` | `private` — per-sheet visibility; CDNs must not cache |
+| Neither (default) | `public` — CDNs may cache freely |
 
 This is set unconditionally so the value is always explicit, regardless of what
 Cantaloupe returns.

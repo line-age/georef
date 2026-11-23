@@ -79,8 +79,9 @@ Tiles pass through our service for these reasons:
   the image server's internal address.
 
 The proxy has to stream responses and reuse connections to the image server, and must not
-buffer whole responses. Public sheets get normal cache headers; restricted sheets get
-`Cache-Control: private`, so a CDN can only cache public ones.
+buffer whole responses. Public sheets get `Cache-Control: public`; private sheets (per-sheet `public=false`)
+and globally restricted sheets (`READ_LOGIN_REQUIRED=true`) get `Cache-Control: private`,
+so a CDN only ever caches tiles that every viewer may see.
 
 ## A sheet's life
 
