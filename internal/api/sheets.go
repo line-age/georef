@@ -118,18 +118,18 @@ func (handler *Handler) updateSheet(w http.ResponseWriter, r *http.Request) {
 	// A visibility-only PATCH (title omitted, public set) is valid and touches
 	// only the public column. Any other update requires a non-empty title.
 	visibilityOnly := updateRequest.Title == "" && updateRequest.Public != nil
-	if !visibilityOnly && updateRequest.Title == "" {
-		writeError(w, http.StatusBadRequest, msgTitleRequiredPatch)
-		return
-	}
 	if updateRequest.Title == "" && updateRequest.Public == nil {
 		writeError(w, http.StatusBadRequest, msgNothingToUpdate)
+		return
+	}
+	if !visibilityOnly && updateRequest.Title == "" {
+		writeError(w, http.StatusBadRequest, msgTitleRequiredPatch)
 		return
 	}
 
 	// The deleted check runs inside the transaction so the row lock prevents a
 	// concurrent DELETE from slipping between a pre-check and the UPDATE.
-	updated, updateErr := handler.sheets.Update(r.Context(), id, func(s *model.Sheet) error {
+	updated, updateErr := handler.iiifSheets.Update(r.Context(), id, func(s *model.Sheet) error {
 		if s.Status == model.StatusDeleted {
 			return errDeletedSheet
 		}
@@ -168,7 +168,7 @@ func (handler *Handler) updateSheet(w http.ResponseWriter, r *http.Request) {
 func (handler *Handler) deleteSheet(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	err := handler.sheets.SoftDelete(r.Context(), id)
+	err := handler.iiifSheets.SoftDelete(r.Context(), id)
 	if err != nil {
 		var notFound sheet.ErrNotFound
 		if errors.As(err, &notFound) {
