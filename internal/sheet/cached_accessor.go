@@ -99,8 +99,12 @@ func (cached *CachedAccessor) Update(ctx context.Context, id string, mutate func
 	if err != nil {
 		return nil, err
 	}
+	// Write the fresh updated sheet into the cache rather than just deleting the key.
+	// A concurrent GetByID may have already fetched the pre-update row from the DB and
+	// be waiting on the write lock; writing here ensures its double-check finds this
+	// entry and returns it instead of overwriting the cache with stale data.
 	cached.mu.Lock()
-	delete(cached.cache, id)
+	cached.cache[id] = cachedEntry{sheet: updated, expiresAt: time.Now().Add(cached.ttl)}
 	cached.mu.Unlock()
 	return updated, nil
 }
