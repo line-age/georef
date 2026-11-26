@@ -9,6 +9,7 @@ urlencode() {
      if(c~/[A-Za-z0-9._~-]/){printf "%s",c}else{printf "%%%02X",ord[c]}}}'
 }
 
+
 DB_USER_ENC=$(urlencode "$DB_USER")
 DB_PASS_ENC=$(urlencode "$DB_PASSWORD")
 DATABASE_URL="postgres://${DB_USER_ENC}:${DB_PASS_ENC}@${DB_HOST}:${DB_PORT:-5432}/${DB_NAME}?sslmode=${DB_SSLMODE:-disable}"
