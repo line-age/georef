@@ -8,10 +8,14 @@
   *, *::before, *::after { box-sizing: border-box; }
   body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #111; }
   h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
-  nav { display: flex; gap: 1.25rem; margin-bottom: 2rem; font-size: .875rem; }
+  nav { display: flex; gap: 1.25rem; margin-bottom: 2rem; font-size: .875rem; align-items: center; }
   nav a { color: #0969da; text-decoration: none; font-weight: 600; }
   nav a:hover { text-decoration: underline; }
   nav a.active { color: #111; pointer-events: none; }
+  nav .nav-end { margin-left: auto; }
+  nav form { margin: 0; }
+  nav button.nav-btn { background: none; border: none; padding: 0; color: #0969da; font-size: .875rem; font-weight: 600; cursor: pointer; }
+  nav button.nav-btn:hover { text-decoration: underline; }
   table { width: 100%; border-collapse: collapse; font-size: .875rem; }
   th { text-align: left; padding: .5rem .75rem; border-bottom: 2px solid #e5e7eb; font-weight: 600; white-space: nowrap; }
   td { padding: .5rem .75rem; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
@@ -49,6 +53,15 @@
 <nav>
   <a href="/">Upload</a>
   <a href="/manage" class="active">Manage sheets</a>
+  {{if .AuthEnabled}}
+  <span class="nav-end">
+    {{if .LoggedIn}}
+    <form method="post" action="/auth/logout"><button type="submit" class="nav-btn">Log out</button></form>
+    {{else}}
+    <a href="/auth/login?next=/manage">Login with GitHub</a>
+    {{end}}
+  </span>
+  {{end}}
 </nav>
 <h1>Manage sheets</h1>
 

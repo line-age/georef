@@ -7,10 +7,18 @@
 <style>
   *, *::before, *::after { box-sizing: border-box; }
   body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; color: #111; }
-  nav { display: flex; gap: 1.25rem; margin-bottom: 2rem; font-size: .875rem; }
+  nav { display: flex; gap: 1.25rem; margin-bottom: 2rem; font-size: .875rem; align-items: center; }
   nav a { color: #0969da; text-decoration: none; font-weight: 600; }
   nav a:hover { text-decoration: underline; }
   nav a.active { color: #111; pointer-events: none; }
+  nav .nav-end { margin-left: auto; }
+  nav form { margin: 0; }
+  nav button.nav-btn { background: none; border: none; padding: 0; color: #0969da; font-size: .875rem; font-weight: 600; cursor: pointer; }
+  nav button.nav-btn:hover { text-decoration: underline; }
+  .login-prompt { margin: 2rem 0; padding: 1.25rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; }
+  .login-prompt p { margin: 0 0 1rem; color: #374151; }
+  .login-prompt .btn { display: inline-block; padding: .5rem 1.25rem; background: #24292f; color: #fff; text-decoration: none; border-radius: 4px; font-size: .9rem; font-weight: 600; }
+  .login-prompt .btn:hover { background: #1a1f24; }
   h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
   label { display: block; font-size: .875rem; font-weight: 600; margin-bottom: .25rem; }
   input[type=text], input[type=url], input[type=file], textarea {
@@ -25,8 +33,6 @@
   #status.ok    { background: #dcfce7; border: 1px solid #86efac; }
   #status.error { background: #fee2e2; border: 1px solid #fca5a5; }
   #status pre { margin: .5rem 0 0; font-size: .8rem; white-space: pre-wrap; word-break: break-all; }
-  .login-hint { margin-top: 1rem; font-size: .875rem; display: none; }
-  .login-hint a { color: #0969da; }
   #progressWrap { margin-top: 1.5rem; display: none; }
   #progressWrap p { font-size: .875rem; margin: 0 0 .4rem; }
   #progressBar { width: 100%; height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
@@ -37,9 +43,24 @@
 <nav>
   <a href="/" class="active">Upload</a>
   <a href="/manage">Manage sheets</a>
+  {{if .AuthEnabled}}
+  <span class="nav-end">
+    {{if .LoggedIn}}
+    <form method="post" action="/auth/logout"><button type="submit" class="nav-btn">Log out</button></form>
+    {{else}}
+    <a href="/auth/login?next=/">Login with GitHub</a>
+    {{end}}
+  </span>
+  {{end}}
 </nav>
 <h1>Upload scan</h1>
 
+{{if and .AuthEnabled (not .LoggedIn)}}
+<div class="login-prompt">
+  <p>You need to log in to upload sheets.</p>
+  <a href="/auth/login?next=/" class="btn">Login with GitHub</a>
+</div>
+{{else}}
 <form id="uploadForm" novalidate>
   <label for="title">Title <span style="color:red">*</span></label>
   <input type="text" id="title" name="title" required>
@@ -65,10 +86,6 @@
   <button type="submit" id="submitBtn">Upload</button>
 </form>
 
-<div class="login-hint" id="loginHint">
-  You need to <a href="/auth/login">log in with GitHub</a> before uploading.
-</div>
-
 <div id="progressWrap">
   <p id="progressLabel">Uploading… 0%</p>
   <div id="progressBar"><div id="progressFill"></div></div>
@@ -83,7 +100,6 @@
   var form = document.getElementById('uploadForm');
   var submitBtn = document.getElementById('submitBtn');
   var statusBox = document.getElementById('status');
-  var loginHint = document.getElementById('loginHint');
   var progressWrap = document.getElementById('progressWrap');
   var progressLabel = document.getElementById('progressLabel');
   var progressFill = document.getElementById('progressFill');
@@ -153,7 +169,6 @@
   form.addEventListener('submit', function (event) {
     event.preventDefault();
     stopPolling();
-    loginHint.style.display = 'none';
     hideProgress();
 
     var titleVal = document.getElementById('title').value.trim();
@@ -193,7 +208,7 @@
       try { data = JSON.parse(xhr.responseText); } catch (parseError) { data = {}; }
       if (xhr.status === 401 || xhr.status === 403) {
         submitBtn.disabled = false;
-        loginHint.style.display = 'block';
+        showStatus('error', '<strong>Not authorised.</strong> Please log in and try again.');
         return;
       }
       if (xhr.status === 202) {
@@ -226,5 +241,6 @@
   });
 }());
 </script>
+{{end}}
 </body>
 </html>
