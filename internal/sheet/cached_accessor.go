@@ -50,7 +50,8 @@ func (cached *CachedAccessor) GetByID(ctx context.Context, id string) (*model.Sh
 	cached.mu.RUnlock()
 
 	if ok && time.Now().Before(entry.expiresAt) {
-		return entry.sheet, nil
+		sheetCopy := *entry.sheet
+		return &sheetCopy, nil
 	}
 
 	sheetRecord, err := cached.inner.GetByID(ctx, id)
@@ -63,7 +64,8 @@ func (cached *CachedAccessor) GetByID(ctx context.Context, id string) (*model.Sh
 	// RUnlock and this Lock. Return its entry rather than overwriting it.
 	if existing, ok := cached.cache[id]; ok && time.Now().Before(existing.expiresAt) {
 		cached.mu.Unlock()
-		return existing.sheet, nil
+		sheetCopy := *existing.sheet
+		return &sheetCopy, nil
 	}
 	cached.cache[id] = cachedEntry{sheet: sheetRecord, expiresAt: time.Now().Add(cached.ttl)}
 	cached.evictExpiredLocked()
@@ -103,9 +105,15 @@ func (cached *CachedAccessor) Update(ctx context.Context, id string, mutate func
 	// A concurrent GetByID may have already fetched the pre-update row from the DB and
 	// be waiting on the write lock; writing here ensures its double-check finds this
 	// entry and returns it instead of overwriting the cache with stale data.
-	cached.mu.Lock()
-	cached.cache[id] = cachedEntry{sheet: updated, expiresAt: time.Now().Add(cached.ttl)}
-	cached.mu.Unlock()
+	//
+	// Note: this resets the TTL to a full window from now. A sheet updated near the end
+	// of its original TTL window will stay cached for up to 2×ttl from first population.
+	// This is intentional: the entry is fresh data, so extending the window is correct.
+	if cached.ttl > 0 {
+		cached.mu.Lock()
+		cached.cache[id] = cachedEntry{sheet: updated, expiresAt: time.Now().Add(cached.ttl)}
+		cached.mu.Unlock()
+	}
 	return updated, nil
 }
 
@@ -117,12 +125,14 @@ func (cached *CachedAccessor) SoftDelete(ctx context.Context, id string) error {
 	// have already fetched the pre-delete row from the DB and is waiting on the
 	// write lock; when it acquires the lock it will find the tombstone via the
 	// double-check and return that instead of overwriting it with stale data.
-	cached.mu.Lock()
-	cached.cache[id] = cachedEntry{
-		sheet:     &model.Sheet{Status: model.StatusDeleted},
-		expiresAt: time.Now().Add(cached.ttl),
+	if cached.ttl > 0 {
+		cached.mu.Lock()
+		cached.cache[id] = cachedEntry{
+			sheet:     &model.Sheet{ID: id, Status: model.StatusDeleted},
+			expiresAt: time.Now().Add(cached.ttl),
+		}
+		cached.mu.Unlock()
 	}
-	cached.mu.Unlock()
 	return nil
 }
 

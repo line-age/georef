@@ -68,8 +68,8 @@ func (repository *repository) List(ctx context.Context, filter ListFilter) ([]*m
 		return nil, err
 	}
 	sheets := make([]*model.Sheet, len(dbRows))
-	for i, dbRow := range dbRows {
-		sheets[i] = toSheetModel(dbRow)
+	for idx, dbRow := range dbRows {
+		sheets[idx] = toSheetModel(dbRow)
 	}
 	return sheets, nil
 }
@@ -166,7 +166,10 @@ func (repository *repository) ProcessNext(ctx context.Context, maxRetries int, p
 		return false, err
 	}
 
-	return true, transaction.Commit(ctx)
+	if err := transaction.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // toSheetModel converts a database row into the domain Sheet model.
