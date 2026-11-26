@@ -7,16 +7,16 @@ How write access is controlled and how the GitHub OAuth flow works.
 | Action | Requirement |
 |---|---|
 | `GET /sheets`, `GET /sheets/{id}` | None — public |
-| `GET /iiif/…` (public sheet) | None by default; GitHub session or service credential when `READ_LOGIN_REQUIRED=true` |
-| `GET /iiif/…` (private sheet) | GitHub session or service credential regardless of `READ_LOGIN_REQUIRED` |
+| `GET /iiif/…` (public sheet) | None by default; GitHub session or service credential when `IIIF_AUTH_REQUIRED=true` |
+| `GET /iiif/…` (private sheet) | GitHub session or service credential regardless of `IIIF_AUTH_REQUIRED` |
 | `POST /sheets` | GitHub session in an allowed team |
 | `PATCH /sheets/{id}` | GitHub session in an allowed team |
 | `DELETE /sheets/{id}` | GitHub session in an allowed team |
 | `GET /` (upload form) | None — form is public; upload triggers auth check |
 | `GET /manage` | GitHub session in an allowed team |
 
-Write endpoints are gated by the `RequireWrite` middleware. IIIF endpoints are gated by
-`RequireRead` when `READ_LOGIN_REQUIRED=true`; otherwise `RequireRead` is a passthrough.
+Write endpoints are gated by the `RequireLogin` middleware. IIIF endpoints are gated by
+`RequireIIIFAuth` when `IIIF_AUTH_REQUIRED=true`; otherwise `RequireIIIFAuth` is a passthrough.
 
 ## GitHub OAuth flow
 
@@ -29,7 +29,7 @@ GET /auth/login
   → GET /auth/callback?code=…&state=…
   → server exchanges code for token
   → server calls GET https://api.github.com/user/teams (paginated, all results)
-  → if any team slug matches GITHUB_ALLOWED_TEAMS → set session, 302 /
+  → if any team slug matches GITHUB_ALLOWED_TEAMS → set session, 302 to `next` param (or / if absent)
   → otherwise → 403 Forbidden
 ```
 
@@ -77,9 +77,9 @@ Example value: `lineage/editors,lineage/admins`. On callback:
 3. If any entry is in `GITHUB_ALLOWED_TEAMS`, the user is granted access.
 4. Otherwise `403 Forbidden` is returned and no session is created.
 
-## Read login
+## IIIF auth
 
-By default IIIF reads are public. When `READ_LOGIN_REQUIRED=true`, every request
+By default IIIF reads are public. When `IIIF_AUTH_REQUIRED=true`, every request
 to `GET /iiif/…` must pass one of:
 
 1. **GitHub session** — a cookie from a completed OAuth login (same session used
@@ -91,10 +91,10 @@ to `GET /iiif/…` must pass one of:
 
 A request that passes neither receives `401 Unauthorized`.
 
-When auth is entirely disabled (`GITHUB_CLIENT_ID` unset), `READ_LOGIN_REQUIRED`
-has no effect — `RequireRead` is a passthrough regardless.
+When auth is entirely disabled (`GITHUB_CLIENT_ID` unset), `IIIF_AUTH_REQUIRED`
+has no effect — `RequireIIIFAuth` is a passthrough regardless.
 
-IIIF responses carry `Cache-Control: private` when read login is on, or when the
+IIIF responses carry `Cache-Control: private` when IIIF auth is on, or when the
 sheet itself is private (`public=false`). Otherwise they carry `Cache-Control: public`.
 
 ## Setting up the GitHub OAuth App
@@ -132,18 +132,18 @@ openssl rand -base64 32
 Set the output as `SESSION_KEY`. Keep it secret. Rotating it invalidates all
 active sessions immediately (everyone is logged out).
 
-## AUTH_REQUIRED vs READ_LOGIN_REQUIRED
+## AUTH_REQUIRED vs IIIF_AUTH_REQUIRED
 
 These two flags are independent. It is a common mistake to conflate them.
 
 | Flag | Controls | Default |
 |---|---|---|
 | `AUTH_REQUIRED` | Write access — `POST`, `PATCH`, `DELETE /sheets`, `/manage` | `true` |
-| `READ_LOGIN_REQUIRED` | IIIF read access — `GET /iiif/…` for **all** sheets globally | `false` |
+| `IIIF_AUTH_REQUIRED` | IIIF read access — `GET /iiif/…` for **all** sheets globally | `false` |
 
 They can be set in any combination:
 
-| `AUTH_REQUIRED` | `READ_LOGIN_REQUIRED` | Practical meaning |
+| `AUTH_REQUIRED` | `IIIF_AUTH_REQUIRED` | Practical meaning |
 |---|---|---|
 | `true` | `false` | Writers must log in; anyone can view IIIF tiles (typical production) |
 | `true` | `true` | Writers must log in; viewers must also authenticate or use a service credential |
@@ -152,13 +152,13 @@ They can be set in any combination:
 
 A third layer of access control sits below these two flags: **per-sheet
 visibility**. A sheet with `public=false` requires a valid session or service
-credential on its IIIF endpoints even when `READ_LOGIN_REQUIRED=false`. This is
+credential on its IIIF endpoints even when `IIIF_AUTH_REQUIRED=false`. This is
 checked per request inside `resolveReadySheet` after the status check, not by a
 middleware. `AUTH_REQUIRED=false` disables this check along with the rest of
 auth.
 
-The service credential (`SERVICE_CREDENTIAL`) is accepted by `RequireRead` and
-the per-sheet private check, but **not** by `RequireWrite`. Machine-to-machine
+The service credential (`SERVICE_CREDENTIAL`) is accepted by `RequireIIIFAuth` and
+the per-sheet private check, but **not** by `RequireLogin`. Machine-to-machine
 callers (e.g. the Allmaps Tile Server) can read tiles without a browser session
 but cannot upload or delete sheets.
 
@@ -173,8 +173,8 @@ but cannot upload or delete sheets.
 | `SESSION_KEY` | When auth enabled | Base64-encoded signing key (≥ 32 bytes); generate with `openssl rand -base64 32` |
 | `SESSION_MAX_AGE` | No | Session lifetime in seconds; default `604800` (7 days) |
 | `SECURE_COOKIES` | No | Set `false` for local development over HTTP; default `true` |
-| `READ_LOGIN_REQUIRED` | No | Set `true` to require auth on all IIIF endpoints globally; default `false`. Independent of `AUTH_REQUIRED` — see section above |
-| `SERVICE_CREDENTIAL` | When `READ_LOGIN_REQUIRED=true` | Bearer token for server-side IIIF access |
+| `IIIF_AUTH_REQUIRED` | No | Set `true` to require auth on all IIIF endpoints globally; default `false`. Independent of `AUTH_REQUIRED` — see section above |
+| `SERVICE_CREDENTIAL` | When `IIIF_AUTH_REQUIRED=true` | Bearer token for server-side IIIF access |
 
 The OAuth callback URL is not a separate variable — the server builds it as
 `BASE_URL + /auth/callback`. Register that exact URL in the GitHub OAuth App.
@@ -191,8 +191,8 @@ Auth is disabled in two cases:
 
 When disabled:
 
-- `RequireWrite` is a passthrough — all write requests succeed without a session.
-- `RequireRead` is a passthrough — `READ_LOGIN_REQUIRED` has no effect.
+- `RequireLogin` is a passthrough — all write requests succeed without a session.
+- `RequireIIIFAuth` is a passthrough — `IIIF_AUTH_REQUIRED` has no effect.
 - `/auth/login` and `/auth/callback` redirect immediately to `/`.
 - `/auth/logout` clears any existing session and redirects to `/`.
 

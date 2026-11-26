@@ -40,7 +40,7 @@ IIIF request — tile, info.json, and manifest.
 
 ```mermaid
 flowchart TD
-    A(["client requests /iiif/:id/..."]) --> AA{READ_LOGIN_REQUIRED?}
+    A(["client requests /iiif/:id/..."]) --> AA{IIIF_AUTH_REQUIRED?}
     AA -->|yes| AB{valid session\nor service credential?}
     AB -->|no| AC[401 Unauthorized]
     AB -->|yes| B
@@ -54,12 +54,12 @@ flowchart TD
     E -->|ready| I["continue to\nthe specific flow below"]
 ```
 
-### Read login
+### IIIF auth
 
-The `RequireRead` middleware runs before the status check. When
-`READ_LOGIN_REQUIRED=true`, a request with neither a valid GitHub session nor an
+The `RequireIIIFAuth` middleware runs before the status check. When
+`IIIF_AUTH_REQUIRED=true`, a request with neither a valid GitHub session nor an
 `Authorization: Bearer <SERVICE_CREDENTIAL>` header is rejected with `401` before
-the sheet is ever looked up. See `docs/auth.md` for the full read-login design.
+the sheet is ever looked up. See `docs/auth.md` for the full IIIF-auth design.
 
 ### Why the same check for every IIIF request
 
@@ -155,7 +155,7 @@ The value is `private` when either condition holds; otherwise `public`:
 
 | Condition | `Cache-Control` sent to client |
 |---|---|
-| `READ_LOGIN_REQUIRED=true` | `private` — all tiles gated; CDNs must not cache |
+| `IIIF_AUTH_REQUIRED=true` | `private` — all tiles gated; CDNs must not cache |
 | Sheet has `public=false` | `private` — per-sheet visibility; CDNs must not cache |
 | Neither (default) | `public` — CDNs may cache freely |
 
@@ -178,9 +178,16 @@ The allowed origins are controlled by `CORS_ALLOWED_ORIGINS` (default: `*`):
 Preflight `OPTIONS` requests are handled before any auth middleware, so a viewer
 can determine the allowed methods without presenting a session.
 
-When `READ_LOGIN_REQUIRED=true`, CORS headers are still included. The auth check
-is enforced by `RequireRead` on the GET route; preflight itself does not require
+When `IIIF_AUTH_REQUIRED=true`, CORS headers are still included. The auth check
+is enforced by `RequireIIIFAuth` on the GET route; preflight itself does not require
 auth since browsers send it without credentials.
+
+**`*` and private sheets are incompatible.** The CORS spec forbids
+`Access-Control-Allow-Credentials: true` alongside `Access-Control-Allow-Origin: *`,
+so when `CORS_ALLOWED_ORIGINS=*` the browser strips session cookies from
+cross-origin requests. A private sheet (`public=false`) will return `401` for
+every cross-origin viewer. To serve private sheets cross-origin, set
+`CORS_ALLOWED_ORIGINS` to an explicit allowlist of trusted origins.
 
 ### Connection reuse
 

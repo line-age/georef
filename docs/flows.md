@@ -28,7 +28,7 @@ flowchart TD
     M --> N{any team in GITHUB_ALLOWED_TEAMS?}
     N -->|no| O[403 Forbidden]
     N -->|yes| P[set session authenticated=true\nMax-Age SESSION_MAX_AGE]
-    P --> Q[302 → /]
+    P --> Q["302 → next param if present, else /"]
 ```
 
 ### Key points
@@ -39,20 +39,20 @@ flowchart TD
 - **Team check happens once at login.** The session stores `authenticated=true`
   and expires after `SESSION_MAX_AGE` (default 7 days). On expiry the user
   re-authenticates and the team membership is re-checked.
-- **`RequireWrite` middleware** checks only the session flag — no Postgres hit,
+- **`RequireLogin` middleware** checks only the session flag — no Postgres hit,
   no GitHub API call per request.
-- **`RequireRead` middleware** gates IIIF endpoints when `READ_LOGIN_REQUIRED=true`.
+- **`RequireIIIFAuth` middleware** gates IIIF endpoints when `IIIF_AUTH_REQUIRED=true`.
   It accepts the same session cookie, or an `Authorization: Bearer <SERVICE_CREDENTIAL>`
   header for server-side callers that cannot use a browser session. When
-  `READ_LOGIN_REQUIRED` is false (the default), `RequireRead` is a passthrough.
-  See `docs/auth.md` for the full read-login design.
-- **Per-sheet private access.** Even when `READ_LOGIN_REQUIRED=false`, a sheet
+  `IIIF_AUTH_REQUIRED` is false (the default), `RequireIIIFAuth` is a passthrough.
+  See `docs/auth.md` for the full IIIF-auth design.
+- **Per-sheet private access.** Even when `IIIF_AUTH_REQUIRED=false`, a sheet
   with `public=false` requires a valid session or service credential. This check
   runs inside `resolveReadySheet` after the status check and returns `401` for
   unauthenticated requests. The `Cache-Control` header is always `private` for
   private sheets, regardless of the global flag.
 - **Disabled mode** — when `GITHUB_CLIENT_ID` is unset or `AUTH_REQUIRED=false`,
-  both `RequireWrite` and `RequireRead` are passthroughs and the `/auth/*` routes
+  both `RequireLogin` and `RequireIIIFAuth` are passthroughs and the `/auth/*` routes
   redirect immediately to `/`.
 
 ---
@@ -254,9 +254,12 @@ flowchart TD
 
 ### Key points
 
-- **Login hint.** A `401` or `403` from `POST /sheets` shows a link to
-  `/auth/login` rather than an error. The form is served without auth so anyone
-  can visit it; only the submit step requires a session.
+- **Auth gate on the form.** When `AUTH_REQUIRED` is set and the user is not
+  logged in, the upload form is hidden and replaced by a login prompt. After
+  login, the user is returned to `/` automatically via the `next` parameter.
+  When auth is disabled, the form is always visible. A `401` or `403` from
+  `POST /sheets` (which can still reach the API directly) shows an error
+  message rather than a link.
 - **Polling.** The form polls `GET /sheets/{id}` every 3 seconds. This is a
   simple interval loop — no websocket, no server-sent events.
 - **Upload progress.** The form uses `XMLHttpRequest` (not `fetch`) so it can
