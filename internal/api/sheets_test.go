@@ -16,17 +16,18 @@ import (
 
 // sheetAPIResponse mirrors the JSON body returned by the sheet API endpoints.
 type sheetAPIResponse struct {
-	ID          string     `json:"id"`
-	Title       string     `json:"title"`
-	Institution string     `json:"institution"`
-	SourceURL   string     `json:"source_url"`
-	RightsNote  string     `json:"rights_note"`
-	Status      string     `json:"status"`
-	ErrorMessage string    `json:"error_message"`
-	SheetURL    string     `json:"sheet_url"`
-	IIIFBaseURL string     `json:"iiif_base_url"`
-	ManifestURL string     `json:"manifest_url"`
-	DeletedAt   *time.Time `json:"deleted_at"`
+	ID           string     `json:"id"`
+	Title        string     `json:"title"`
+	Institution  string     `json:"institution"`
+	SourceURL    string     `json:"source_url"`
+	RightsNote   string     `json:"rights_note"`
+	Status       string     `json:"status"`
+	Public       bool       `json:"public"`
+	ErrorMessage string     `json:"error_message"`
+	SheetURL     string     `json:"sheet_url"`
+	IIIFBaseURL  string     `json:"iiif_base_url"`
+	ManifestURL  string     `json:"manifest_url"`
+	DeletedAt    *time.Time `json:"deleted_at"`
 }
 
 // sheetListResponse mirrors the JSON body returned by GET /sheets.
@@ -144,8 +145,8 @@ func TestSheetCRUD(t *testing.T) {
 
 	// ── PATCH /sheets/{id} ────────────────────────────────────────────────
 
-	t.Run("patch_updates_metadata_and_returns_200", func(t *testing.T) {
-		patchRec := doPatch(t, handler, "/sheets/"+sheetID, map[string]string{
+	t.Run("patch_updates_all_fields_and_returns_200", func(t *testing.T) {
+		patchRec := doPatch(t, handler, "/sheets/"+sheetID, map[string]any{
 			"title":        "Updated Title",
 			"institution":  "Updated Institution",
 			"source_url":   "https://updated.example.com",
@@ -166,8 +167,40 @@ func TestSheetCRUD(t *testing.T) {
 		}
 	})
 
-	t.Run("patch_missing_title_returns_400", func(t *testing.T) {
-		rec := doPatch(t, handler, "/sheets/"+sheetID, map[string]string{
+	t.Run("patch_single_field_returns_200", func(t *testing.T) {
+		patchRec := doPatch(t, handler, "/sheets/"+sheetID, map[string]any{
+			"institution": "Only Institution Changed",
+		})
+		if patchRec.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d: %s", patchRec.Code, patchRec.Body.String())
+		}
+		var resp sheetAPIResponse
+		if err := json.NewDecoder(patchRec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Institution != "Only Institution Changed" {
+			t.Errorf("institution: got %q", resp.Institution)
+		}
+	})
+
+	t.Run("patch_visibility_only_returns_200", func(t *testing.T) {
+		patchRec := doPatch(t, handler, "/sheets/"+sheetID, map[string]any{
+			"public": false,
+		})
+		if patchRec.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d: %s", patchRec.Code, patchRec.Body.String())
+		}
+		var resp sheetAPIResponse
+		if err := json.NewDecoder(patchRec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Public {
+			t.Errorf("public: want false, got true")
+		}
+	})
+
+	t.Run("patch_empty_title_returns_400", func(t *testing.T) {
+		rec := doPatch(t, handler, "/sheets/"+sheetID, map[string]any{
 			"title": "",
 		})
 		if rec.Code != http.StatusBadRequest {
@@ -175,8 +208,15 @@ func TestSheetCRUD(t *testing.T) {
 		}
 	})
 
+	t.Run("patch_empty_body_returns_400", func(t *testing.T) {
+		rec := doPatch(t, handler, "/sheets/"+sheetID, map[string]any{})
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("want 400, got %d", rec.Code)
+		}
+	})
+
 	t.Run("patch_unknown_id_returns_404", func(t *testing.T) {
-		rec := doPatch(t, handler, "/sheets/01ZZZZZZZZZZZZZZZZZZZZZZZZ", map[string]string{
+		rec := doPatch(t, handler, "/sheets/01ZZZZZZZZZZZZZZZZZZZZZZZZ", map[string]any{
 			"title": "New Title",
 		})
 		if rec.Code != http.StatusNotFound {
@@ -232,7 +272,7 @@ func doGet(t *testing.T, handler *api.Handler, path string) *httptest.ResponseRe
 	return rec
 }
 
-func doPatch(t *testing.T, handler *api.Handler, path string, body map[string]string) *httptest.ResponseRecorder {
+func doPatch(t *testing.T, handler *api.Handler, path string, body map[string]any) *httptest.ResponseRecorder {
 	t.Helper()
 	payload, err := json.Marshal(body)
 	if err != nil {

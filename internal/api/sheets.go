@@ -22,8 +22,8 @@ const (
 	msgSheetGone       = "sheet permanently removed"
 	msgInvalidJSON     = "invalid JSON body"
 	msgInternalError   = "internal server error"
-	msgTitleRequiredPatch  = "title is required when updating metadata"
-	msgNothingToUpdate     = "provide title or public"
+	msgTitleEmpty      = "title cannot be empty"
+	msgNothingToUpdate = "provide at least one field"
 
 	msgInvalidLimit  = "limit must be an integer between 1 and 100"
 	msgInvalidOffset = "offset must be a non-negative integer"
@@ -93,19 +93,19 @@ func (handler *Handler) listSheets(w http.ResponseWriter, r *http.Request) {
 }
 
 // updateSheetRequest is the JSON body accepted by PATCH /sheets/{id}.
-// All editable fields are replaced; title is required.
-// Public is a pointer so an omitted field leaves the current value unchanged.
+// All fields are optional; only fields present in the request are updated.
+// Pointer fields distinguish "not sent" (nil) from "sent as empty" (non-nil).
 type updateSheetRequest struct {
-	Title       string `json:"title"`
-	Institution string `json:"institution"`
-	SourceURL   string `json:"source_url"`
-	RightsNote  string `json:"rights_note"`
-	Public      *bool  `json:"public"`
+	Title       *string `json:"title"`
+	Institution *string `json:"institution"`
+	SourceURL   *string `json:"source_url"`
+	RightsNote  *string `json:"rights_note"`
+	Public      *bool   `json:"public"`
 }
 
 // updateSheet handles PATCH /sheets/{id}.
-// Replaces all editable metadata fields. Returns 200 with the updated sheet.
-// Returns 404 if not found, 410 if deleted, 400 if validation fails.
+// Applies a partial update: only fields present in the request body are changed.
+// Returns 200 with the updated sheet, 404 if not found, 410 if deleted, 400 if validation fails.
 func (handler *Handler) updateSheet(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -115,15 +115,14 @@ func (handler *Handler) updateSheet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A visibility-only PATCH (title omitted, public set) is valid and touches
-	// only the public column. Any other update requires a non-empty title.
-	visibilityOnly := updateRequest.Title == "" && updateRequest.Public != nil
-	if updateRequest.Title == "" && updateRequest.Public == nil {
+	if updateRequest.Title == nil && updateRequest.Institution == nil &&
+		updateRequest.SourceURL == nil && updateRequest.RightsNote == nil &&
+		updateRequest.Public == nil {
 		writeError(w, http.StatusBadRequest, msgNothingToUpdate)
 		return
 	}
-	if !visibilityOnly && updateRequest.Title == "" {
-		writeError(w, http.StatusBadRequest, msgTitleRequiredPatch)
+	if updateRequest.Title != nil && *updateRequest.Title == "" {
+		writeError(w, http.StatusBadRequest, msgTitleEmpty)
 		return
 	}
 
@@ -133,15 +132,11 @@ func (handler *Handler) updateSheet(w http.ResponseWriter, r *http.Request) {
 		if s.Status == model.StatusDeleted {
 			return errDeletedSheet
 		}
-		if !visibilityOnly {
-			s.Title = updateRequest.Title
-			s.Institution = updateRequest.Institution
-			s.SourceURL = updateRequest.SourceURL
-			s.RightsNote = updateRequest.RightsNote
-		}
-		if updateRequest.Public != nil {
-			s.Public = *updateRequest.Public
-		}
+		if updateRequest.Title != nil       { s.Title = *updateRequest.Title }
+		if updateRequest.Institution != nil { s.Institution = *updateRequest.Institution }
+		if updateRequest.SourceURL != nil   { s.SourceURL = *updateRequest.SourceURL }
+		if updateRequest.RightsNote != nil  { s.RightsNote = *updateRequest.RightsNote }
+		if updateRequest.Public != nil      { s.Public = *updateRequest.Public }
 		return nil
 	})
 	if updateErr != nil {
