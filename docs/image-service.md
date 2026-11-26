@@ -42,9 +42,13 @@ flowchart LR
 
 | Request | Handled by | What happens |
 |---|---|---|
-| `POST /sheets` | our service | Upload. GitHub login in an allowed team. See below. |
+| `GET /` | our service | Serves the browser upload form. No auth required. |
+| `GET /docs` | our service | Swagger UI — interactive API reference. No auth required. |
+| `GET /docs/openapi.yaml` | our service | Raw OpenAPI spec (YAML). Embedded in the binary at build time. No auth required. |
+| `GET /auth/login`, `/auth/callback`, `POST /auth/logout` | our service | GitHub OAuth flow and session management. See `docs/auth.md`. |
+| `POST /sheets` | our service | Upload. GitHub session required when auth is enabled. |
 | `GET /sheets`, `GET /sheets/{id}` | our service | List, search and read sheet records from Postgres. |
-| `PATCH`, `DELETE /sheets/{id}` | our service | Edit metadata, delete. GitHub login in an allowed team. |
+| `PATCH`, `DELETE /sheets/{id}` | our service | Edit metadata, delete. GitHub session required when auth is enabled. |
 | `GET /iiif/{id}/manifest` | our service | IIIF Presentation manifest, built from the record. |
 | `GET /iiif/{id}/info.json`, tiles | our service, then the image server | Checked by our service, then streamed from the image server. |
 
@@ -75,8 +79,9 @@ Tiles pass through our service for these reasons:
   the image server's internal address.
 
 The proxy has to stream responses and reuse connections to the image server, and must not
-buffer whole responses. Public sheets get normal cache headers; restricted sheets get
-`Cache-Control: private`, so a CDN can only cache public ones.
+buffer whole responses. Public sheets get `Cache-Control: public`; private sheets (per-sheet `public=false`)
+and globally restricted sheets (`READ_LOGIN_REQUIRED=true`) get `Cache-Control: private`,
+so a CDN only ever caches tiles that every viewer may see.
 
 ## A sheet's life
 
@@ -121,9 +126,45 @@ authorization. The remaining difference is storage. Cantaloupe reads S3 directly
 we know IIPImage reads only the local filesystem, so S3 storage would mean mounting the
 bucket. That points to Cantaloupe, and it is the one to rule out first.
 
+## Image server choice
+
+Cantaloupe is used. Configuration uses `path_prefix` and `path_suffix` so the
+IIIF identifier is the bare ULID with no slashes:
+
+```
+identifier  = {id}
+path_prefix = /data/storage/sheets/
+path_suffix = /pyramid.tif
+→ file       = /data/storage/sheets/{id}/pyramid.tif
+```
+
+This avoids the `%2F` path-traversal defence in Cantaloupe's embedded Jetty
+server, which would reject identifiers containing encoded slashes.
+
+Pyramid TIFFs are written with `0644` permissions so Cantaloupe (running as a
+different UID in the container) can read them.
+
+## Storage configuration
+
+The service and worker share a storage backend selected by `STORAGE_BACKEND`.
+
+| Env var | Default | Description |
+|---|---|---|
+| `STORAGE_BACKEND` | `filesystem` | `filesystem` or `s3` |
+| `STORAGE_ROOT` | — | Required when `STORAGE_BACKEND=filesystem`; root directory for all sheet files |
+| `S3_BUCKET` | — | Required when `STORAGE_BACKEND=s3`; bucket name |
+| `S3_REGION` | `us-east-1` | AWS region or MinIO-compatible region string |
+| `S3_ENDPOINT` | — | Custom endpoint URL for S3-compatible services (e.g. MinIO); omit for real AWS |
+
+Credentials for the S3 backend are resolved via the standard AWS credential chain:
+`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars, shared credentials file, or
+instance metadata. These are never set in this repository.
+
+When `STORAGE_BACKEND=s3`, `PyramidalTIFFPath` returns an `s3://` URI. Cantaloupe must be
+configured to use `S3Source` and given the same bucket and credentials out-of-band.
+
 ## Open
 
-- Which image server. See above.
 - Whether Cantaloupe caches a `404` for an identifier and keeps serving it after the file
   appears. Less likely to matter now, since the image server only sees requests for ready
   sheets, but worth checking.

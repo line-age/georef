@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manage sheets</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #111; }
+  h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
+  nav { display: flex; gap: 1.25rem; margin-bottom: 2rem; font-size: .875rem; align-items: center; }
+  nav a { color: #0969da; text-decoration: none; font-weight: 600; }
+  nav a:hover { text-decoration: underline; }
+  nav a.active { color: #111; pointer-events: none; }
+  nav .nav-end { margin-left: auto; }
+  nav form { margin: 0; }
+  nav button.nav-btn { background: none; border: none; padding: 0; color: #0969da; font-size: .875rem; font-weight: 600; cursor: pointer; }
+  nav button.nav-btn:hover { text-decoration: underline; }
+  table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+  th { text-align: left; padding: .5rem .75rem; border-bottom: 2px solid #e5e7eb; font-weight: 600; white-space: nowrap; }
+  td { padding: .5rem .75rem; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  .badge {
+    display: inline-block; padding: .15rem .5rem; border-radius: 999px;
+    font-size: .75rem; font-weight: 600; white-space: nowrap;
+  }
+  .badge-public  { background: #dcfce7; color: #166534; }
+  .badge-private { background: #fef9c3; color: #854d0e; }
+  .badge-ready      { background: #dcfce7; color: #166534; }
+  .badge-processing { background: #dbeafe; color: #1e40af; }
+  .badge-failed     { background: #fee2e2; color: #991b1b; }
+  .title-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .link-cell a { color: #0969da; word-break: break-all; font-size: .8rem; }
+  button.toggle {
+    padding: .25rem .75rem; border-radius: 4px; border: 1px solid #d1d5db;
+    background: #fff; cursor: pointer; font-size: .8rem; white-space: nowrap;
+  }
+  button.toggle:disabled { opacity: .5; cursor: not-allowed; }
+  .pager { margin-top: 1.5rem; display: flex; gap: .75rem; align-items: center; font-size: .875rem; }
+  .pager a { color: #0969da; }
+  .empty { margin: 2rem 0; color: #6b7280; }
+  .toast {
+    position: fixed; bottom: 1.5rem; right: 1.5rem;
+    padding: .6rem 1rem; border-radius: 6px; font-size: .875rem;
+    color: #fff; opacity: 0; transition: opacity .2s ease; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .toast.ok  { background: #16a34a; }
+  .toast.err { background: #dc2626; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="/">Upload</a>
+  <a href="/manage" class="active">Manage sheets</a>
+  {{if .AuthEnabled}}
+  <span class="nav-end">
+    {{if .LoggedIn}}
+    <form method="post" action="/auth/logout"><button type="submit" class="nav-btn">Log out</button></form>
+    {{else}}
+    <a href="/auth/login?next=/manage">Login with GitHub</a>
+    {{end}}
+  </span>
+  {{end}}
+</nav>
+<h1>Manage sheets</h1>
+
+{{if .Sheets}}
+<table>
+  <thead>
+    <tr>
+      <th>Title</th>
+      <th>Status</th>
+      <th>Visibility</th>
+      <th>Manifest</th>
+      <th>Created</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Sheets}}
+    <tr
+      data-id="{{.ID}}"
+      data-title="{{.Title}}"
+      data-institution="{{.Institution}}"
+      data-source-url="{{.SourceURL}}"
+      data-rights-note="{{.RightsNote}}"
+      data-public="{{.Public}}"
+    >
+      <td class="title-cell" title="{{.Title}}">{{.Title}}</td>
+      <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+      <td>
+        {{if .Public}}
+          <span class="badge badge-public">public</span>
+        {{else}}
+          <span class="badge badge-private">private</span>
+        {{end}}
+      </td>
+      <td class="link-cell">
+        {{if eq .Status "ready"}}
+          <a href="{{.ManifestURL}}" target="_blank" rel="noopener">manifest</a>
+        {{else}}
+          —
+        {{end}}
+      </td>
+      <td>{{.CreatedAt.Format "2006-01-02"}}</td>
+      <td>
+        <button class="toggle" onclick="toggleVisibility(this)">
+          {{if .Public}}Make private{{else}}Make public{{end}}
+        </button>
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="empty">No sheets yet.</p>
+{{end}}
+
+<div class="pager">
+  {{if .HasPrev}}
+    <a href="?limit={{.Limit}}&offset={{.PrevOffset}}">← Previous</a>
+  {{end}}
+  {{if .HasNext}}
+    <a href="?limit={{.Limit}}&offset={{.NextOffset}}">Next →</a>
+  {{end}}
+  <span>Showing {{len .Sheets}} sheet(s) — offset {{.Offset}}</span>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var toast = document.getElementById('toast');
+  var toastTimer = null;
+
+  function showToast(msg, isErr) {
+    toast.textContent = msg;
+    toast.className = 'toast show ' + (isErr ? 'err' : 'ok');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toast.className = 'toast'; }, 3000);
+  }
+
+  window.toggleVisibility = function (btn) {
+    var row = btn.closest('tr');
+    var id = row.dataset.id;
+    var currentPublic = row.dataset.public === 'true';
+    var nextPublic = !currentPublic;
+
+    btn.disabled = true;
+
+    fetch('/sheets/' + id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ public: nextPublic })
+    })
+    .then(function (resp) {
+      if (!resp.ok) { return resp.json().then(function (body) { throw new Error(body.error || resp.status); }); }
+      return resp.json();
+    })
+    .then(function (updated) {
+      row.dataset.public = String(updated.public);
+      var badge = row.querySelector('.badge-public, .badge-private');
+      badge.className = 'badge ' + (updated.public ? 'badge-public' : 'badge-private');
+      badge.textContent = updated.public ? 'public' : 'private';
+      btn.textContent = updated.public ? 'Make private' : 'Make public';
+      btn.disabled = false;
+      showToast('Visibility updated', false);
+    })
+    .catch(function (err) {
+      btn.disabled = false;
+      showToast('Error: ' + err.message, true);
+    });
+  };
+}());
+</script>
+</body>
+</html>

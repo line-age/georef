@@ -1,0 +1,155 @@
+// Package iiif builds IIIF Presentation API v3 manifests.
+// It has no I/O dependencies; callers supply all required data.
+package iiif
+
+import (
+	"fmt"
+
+	"github.com/line-age/georef/internal/model"
+)
+
+// LanguageMap is the IIIF v3 language-keyed string map, e.g. {"none": ["My Title"]}.
+type LanguageMap map[string][]string
+
+// Manifest is a IIIF Presentation API v3 manifest.
+type Manifest struct {
+	Context string      `json:"@context"`
+	ID      string      `json:"id"`
+	Type    string      `json:"type"`
+	Label   LanguageMap `json:"label"`
+	Items   []Canvas    `json:"items"`
+}
+
+// Canvas represents one image in the manifest (one sheet = one canvas).
+type Canvas struct {
+	ID     string           `json:"id"`
+	Type   string           `json:"type"`
+	Width  int              `json:"width"`
+	Height int              `json:"height"`
+	Items  []AnnotationPage `json:"items"`
+}
+
+// AnnotationPage groups the painting annotations for a canvas.
+type AnnotationPage struct {
+	ID    string       `json:"id"`
+	Type  string       `json:"type"`
+	Items []Annotation `json:"items"`
+}
+
+// Annotation is a painting annotation that places an image body onto its canvas.
+type Annotation struct {
+	ID         string    `json:"id"`
+	Type       string    `json:"type"`
+	Motivation string    `json:"motivation"`
+	Body       ImageBody `json:"body"`
+	Target     string    `json:"target"`
+}
+
+// ImageBody is the image referenced by a painting annotation.
+type ImageBody struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Format  string `json:"format"`
+	Width   int    `json:"width"`
+	Height  int    `json:"height"`
+	// Service holds either ImageServiceV2 or ImageServiceV3 depending on the
+	// configured IIIF Image API version; the two types have different JSON key
+	// names so they cannot share a single concrete struct.
+	Service []any `json:"service"`
+}
+
+// ImageServiceV2 is a IIIF Image API v2 service descriptor.
+// v2 uses @id and @type key names per the IIIF Image API v2 spec.
+type ImageServiceV2 struct {
+	ID      string `json:"@id"`
+	Type    string `json:"@type"`
+	Profile string `json:"profile"`
+}
+
+// ImageServiceV3 is a IIIF Image API v3 service descriptor.
+// v3 uses id and type key names (no @ prefix) per the IIIF Image API v3 spec.
+type ImageServiceV3 struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Profile string `json:"profile"`
+}
+
+const (
+	// presentationAPIContextURL is the JSON-LD context for IIIF Presentation API v3.
+	presentationAPIContextURL = "http://iiif.io/api/presentation/3/context.json"
+
+	// imageBodyFormat is the MIME type of the IIIF image served by the proxy.
+	imageBodyFormat = "image/jpeg"
+
+	// annotationMotivation is the painting motivation required by IIIF Presentation API v3
+	// to place an image body onto its canvas.
+	annotationMotivation = "painting"
+)
+
+// buildImageService returns the correct service descriptor struct for the given
+// IIIF Image API version. v2 uses @id/@type JSON keys and a full profile URL;
+// v3 uses id/type keys and a plain level string per the IIIF Image API v3 spec.
+func buildImageService(imageAPIVersion, imageAPILevel int, serviceID string) any {
+	serviceType := fmt.Sprintf("ImageService%d", imageAPIVersion)
+	if imageAPIVersion >= 3 {
+		return ImageServiceV3{
+			ID:      serviceID,
+			Type:    serviceType,
+			Profile: fmt.Sprintf("level%d", imageAPILevel),
+		}
+	}
+	return ImageServiceV2{
+		ID:      serviceID,
+		Type:    serviceType,
+		Profile: fmt.Sprintf("http://iiif.io/api/image/%d/level%d.json", imageAPIVersion, imageAPILevel),
+	}
+}
+
+// Build constructs a IIIF Presentation v3 manifest for the given sheet.
+// publicBaseURL is the external root (e.g. "https://maps.example.com").
+// imageAPIVersion is the IIIF Image API version (e.g. 2).
+// imageAPILevel is the IIIF Image API compliance level (e.g. 2).
+// width and height are the pixel dimensions of the sheet image, obtained from info.json.
+func Build(sheet *model.Sheet, publicBaseURL string, imageAPIVersion, imageAPILevel, width, height int) *Manifest {
+	iiifBase := publicBaseURL + "/iiif/" + sheet.ID
+	canvasID := iiifBase + "/canvas/p1"
+
+	service := buildImageService(imageAPIVersion, imageAPILevel, iiifBase)
+
+	return &Manifest{
+		Context: presentationAPIContextURL,
+		ID:      iiifBase + "/manifest",
+		Type:    "Manifest",
+		Label:   LanguageMap{"none": {sheet.Title}},
+		Items: []Canvas{
+			{
+				ID:     canvasID,
+				Type:   "Canvas",
+				Width:  width,
+				Height: height,
+				Items: []AnnotationPage{
+					{
+						ID:   canvasID + "/page",
+						Type: "AnnotationPage",
+						Items: []Annotation{
+							{
+								ID:         canvasID + "/painting",
+								Type:       "Annotation",
+								Motivation: annotationMotivation,
+								Body: ImageBody{
+									ID:     iiifBase + "/full/max/0/default.jpg",
+									Type:   "Image",
+									Format: imageBodyFormat,
+									Width:  width,
+									Height: height,
+									Service: []any{service},
+								},
+								Target: canvasID,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}

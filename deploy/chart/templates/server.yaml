@@ -1,0 +1,87 @@
+{{- $fn := include "georef.fullname" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fn }}-server
+  labels:
+    {{- include "georef.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.server.replicas }}
+  selector:
+    matchLabels:
+      {{- include "georef.selector" (dict "root" . "component" "server") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "georef.labels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: server
+          image: "{{ .Values.image.server.repository }}:{{ required "image.tag is required" .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            {{- include "georef.dbEnv" . | nindent 12 }}
+            - name: BASE_URL
+              value: {{ required "baseURL is required" .Values.baseURL | trimSuffix "/" | quote }}
+            - name: IMAGE_SERVER_URL
+              value: "http://{{ $fn }}-cantaloupe:8182"
+            - name: ADDR
+              value: ":8080"
+            - name: IIIF_AUTH_REQUIRED
+              value: {{ .Values.auth.iiifAuthRequired | quote }}
+            {{- if .Values.auth.enabled }}
+            - name: GITHUB_ALLOWED_TEAMS
+              value: {{ required "auth.allowedTeams is required when auth.enabled" .Values.auth.allowedTeams | join "," | quote }}
+            {{- end }}
+            {{- include "georef.envMap" .Values.server.env | nindent 12 }}
+          {{- if or .Values.auth.enabled .Values.server.envFromSecrets }}
+          envFrom:
+            {{- if .Values.auth.enabled }}
+            - secretRef: {name: {{ required "auth.existingSecret is required when auth.enabled" .Values.auth.existingSecret }}}
+            {{- end }}
+            {{- range .Values.server.envFromSecrets }}
+            - secretRef: {name: {{ . }}}
+            {{- end }}
+          {{- end }}
+          ports:
+            - {name: http, containerPort: 8080}
+          # No health endpoint yet; the listener opens only after migrations have run.
+          startupProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 20
+          resources: {{- toYaml .Values.server.resources | nindent 12 }}
+          volumeMounts:
+            - {name: storage, mountPath: /data/storage}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: storage
+          persistentVolumeClaim: {claimName: {{ include "georef.claim" . }}}
+        - name: tmp
+          emptyDir: {sizeLimit: {{ .Values.server.tmpSizeLimit }}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fn }}-server
+  labels:
+    {{- include "georef.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  selector:
+    {{- include "georef.selector" (dict "root" . "component" "server") | nindent 4 }}
+  ports:
+    - {name: http, port: 80, targetPort: http}

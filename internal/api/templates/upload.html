@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Upload scan</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; color: #111; }
+  nav { display: flex; gap: 1.25rem; margin-bottom: 2rem; font-size: .875rem; align-items: center; }
+  nav a { color: #0969da; text-decoration: none; font-weight: 600; }
+  nav a:hover { text-decoration: underline; }
+  nav a.active { color: #111; pointer-events: none; }
+  nav .nav-end { margin-left: auto; }
+  nav form { margin: 0; }
+  nav button.nav-btn { background: none; border: none; padding: 0; color: #0969da; font-size: .875rem; font-weight: 600; cursor: pointer; }
+  nav button.nav-btn:hover { text-decoration: underline; }
+  .login-prompt { margin: 2rem 0; padding: 1.25rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; }
+  .login-prompt p { margin: 0 0 1rem; color: #374151; }
+  .login-prompt .btn { display: inline-block; padding: .5rem 1.25rem; background: #24292f; color: #fff; text-decoration: none; border-radius: 4px; font-size: .9rem; font-weight: 600; }
+  .login-prompt .btn:hover { background: #1a1f24; }
+  h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
+  label { display: block; font-size: .875rem; font-weight: 600; margin-bottom: .25rem; }
+  input[type=text], input[type=url], input[type=file], textarea {
+    display: block; width: 100%; padding: .5rem .75rem; border: 1px solid #ccc;
+    border-radius: 4px; font-size: 1rem; margin-bottom: 1rem;
+  }
+  input[type=file] { padding: .375rem; }
+  button { padding: .5rem 1.25rem; background: #0969da; color: #fff; border: none; border-radius: 4px; font-size: 1rem; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  #status { margin-top: 1.5rem; padding: 1rem; border-radius: 4px; display: none; }
+  #status.info  { background: #dbeafe; border: 1px solid #93c5fd; }
+  #status.ok    { background: #dcfce7; border: 1px solid #86efac; }
+  #status.error { background: #fee2e2; border: 1px solid #fca5a5; }
+  #status pre { margin: .5rem 0 0; font-size: .8rem; white-space: pre-wrap; word-break: break-all; }
+  #progressWrap { margin-top: 1.5rem; display: none; }
+  #progressWrap p { font-size: .875rem; margin: 0 0 .4rem; }
+  #progressBar { width: 100%; height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+  #progressFill { height: 100%; width: 0; background: #0969da; transition: width .2s ease; border-radius: 4px; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="/" class="active">Upload</a>
+  <a href="/manage">Manage sheets</a>
+  {{if .AuthEnabled}}
+  <span class="nav-end">
+    {{if .LoggedIn}}
+    <form method="post" action="/auth/logout"><button type="submit" class="nav-btn">Log out</button></form>
+    {{else}}
+    <a href="/auth/login?next=/">Login with GitHub</a>
+    {{end}}
+  </span>
+  {{end}}
+</nav>
+<h1>Upload scan</h1>
+
+{{if and .AuthEnabled (not .LoggedIn)}}
+<div class="login-prompt">
+  <p>You need to log in to upload sheets.</p>
+  <a href="/auth/login?next=/" class="btn">Login with GitHub</a>
+</div>
+{{else}}
+<form id="uploadForm" novalidate>
+  <label for="title">Title <span style="color:red">*</span></label>
+  <input type="text" id="title" name="title" required>
+
+  <label for="institution">Institution</label>
+  <input type="text" id="institution" name="institution">
+
+  <label for="source_url">Source URL</label>
+  <input type="url" id="source_url" name="source_url">
+
+  <label for="rights_note">Rights note</label>
+  <input type="text" id="rights_note" name="rights_note">
+
+  <label for="file">Scan file (TIFF or JPEG) <span style="color:red">*</span></label>
+  <input type="file" id="file" name="file" accept="image/tiff,image/jpeg,.tif,.tiff,.jpg,.jpeg" required>
+
+  <label for="public">Visibility</label>
+  <select id="public" name="public" style="margin-bottom:1rem">
+    <option value="true" selected>Public</option>
+    <option value="false">Private</option>
+  </select>
+
+  <button type="submit" id="submitBtn">Upload</button>
+</form>
+
+<div id="progressWrap">
+  <p id="progressLabel">Uploading… 0%</p>
+  <div id="progressBar"><div id="progressFill"></div></div>
+</div>
+
+<div id="status"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var form = document.getElementById('uploadForm');
+  var submitBtn = document.getElementById('submitBtn');
+  var statusBox = document.getElementById('status');
+  var progressWrap = document.getElementById('progressWrap');
+  var progressLabel = document.getElementById('progressLabel');
+  var progressFill = document.getElementById('progressFill');
+  var pollTimer = null;
+
+  function setProgress(percent) {
+    progressWrap.style.display = 'block';
+    progressLabel.textContent = 'Uploading… ' + percent + '%';
+    progressFill.style.width = percent + '%';
+  }
+
+  function hideProgress() {
+    progressWrap.style.display = 'none';
+    progressFill.style.width = '0';
+  }
+
+  function escapeHTML(str) {
+    var div = document.createElement('div');
+    div.textContent = (str == null) ? '' : String(str);
+    return div.innerHTML;
+  }
+
+  function showStatus(statusClass, html) {
+    statusBox.className = statusClass;
+    statusBox.innerHTML = html;
+    statusBox.style.display = 'block';
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function pollSheet(id) {
+    pollTimer = setInterval(function () {
+      fetch('/sheets/' + id)
+        .then(function (response) { return response.json(); })
+        .then(function (data) {
+          if (data.status === 'ready') {
+            stopPolling();
+            showStatus('ok',
+              '<strong>Ready</strong><pre>' +
+              'ID: ' + escapeHTML(data.id) + '\n' +
+              'IIIF base: ' + escapeHTML(data.iiif_base_url) + '\n' +
+              'Manifest: ' + escapeHTML(data.manifest_url) +
+              '</pre>');
+            submitBtn.disabled = false;
+          } else if (data.status === 'failed') {
+            stopPolling();
+            showStatus('error',
+              '<strong>Conversion failed</strong>' +
+              (data.error_message ? '<pre>' + escapeHTML(data.error_message) + '</pre>' : ''));
+            submitBtn.disabled = false;
+          } else {
+            showStatus('info',
+              '<strong>Processing&hellip;</strong> <small>(checking every 3 s)</small>' +
+              '<pre>ID: ' + escapeHTML(data.id) + '\nStatus: ' + escapeHTML(data.status) + '</pre>');
+          }
+        })
+        .catch(function (err) {
+          stopPolling();
+          showStatus('error', '<strong>Polling error:</strong> ' + err.message);
+          submitBtn.disabled = false;
+        });
+    }, 3000);
+  }
+
+  form.addEventListener('submit', function (event) {
+    event.preventDefault();
+    stopPolling();
+    hideProgress();
+
+    var titleVal = document.getElementById('title').value.trim();
+    if (!titleVal) {
+      showStatus('error', '<strong>Title is required.</strong>');
+      return;
+    }
+    var fileInput = document.getElementById('file');
+    if (!fileInput.files || !fileInput.files[0]) {
+      showStatus('error', '<strong>Please choose a file.</strong>');
+      return;
+    }
+
+    var formData = new FormData();
+    formData.append('title', titleVal);
+    formData.append('institution', document.getElementById('institution').value);
+    formData.append('source_url', document.getElementById('source_url').value);
+    formData.append('rights_note', document.getElementById('rights_note').value);
+    formData.append('public', document.getElementById('public').value);
+    formData.append('file', fileInput.files[0]);
+
+    submitBtn.disabled = true;
+    statusBox.style.display = 'none';
+    setProgress(0);
+
+    var xhr = new XMLHttpRequest();
+
+    xhr.upload.addEventListener('progress', function (event) {
+      if (event.lengthComputable) {
+        setProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    });
+
+    xhr.addEventListener('load', function () {
+      hideProgress();
+      var data;
+      try { data = JSON.parse(xhr.responseText); } catch (parseError) { data = {}; }
+      if (xhr.status === 401 || xhr.status === 403) {
+        submitBtn.disabled = false;
+        showStatus('error', '<strong>Not authorised.</strong> Please log in and try again.');
+        return;
+      }
+      if (xhr.status === 202) {
+        showStatus('info',
+          '<strong>Uploaded — converting&hellip;</strong>' +
+          '<pre>ID: ' + escapeHTML(data.id) + '</pre>');
+        pollSheet(data.id);
+      } else {
+        submitBtn.disabled = false;
+        showStatus('error',
+          '<strong>Upload failed (' + escapeHTML(xhr.status) + '):</strong> ' +
+          escapeHTML(data.error ? data.error : 'unknown error'));
+      }
+    });
+
+    xhr.addEventListener('error', function () {
+      hideProgress();
+      submitBtn.disabled = false;
+      showStatus('error', '<strong>Network error — upload failed.</strong>');
+    });
+
+    xhr.addEventListener('abort', function () {
+      hideProgress();
+      submitBtn.disabled = false;
+      showStatus('error', '<strong>Upload cancelled.</strong>');
+    });
+
+    xhr.open('POST', '/sheets');
+    xhr.send(formData);
+  });
+}());
+</script>
+{{end}}
+</body>
+</html>

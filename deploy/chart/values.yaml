@@ -1,0 +1,107 @@
+# Generic defaults only. Hostnames, sizes, storage classes and credentials belong to whoever
+# deploys the chart, not to this repository.
+
+# Public base URL, no trailing slash. Required: IIIF ids and sheet URLs are built from it, and
+# a sheet's IIIF URL never changes after upload, so set it once and keep it.
+baseURL: ""
+
+# server and worker are built from the same commit, so they share one tag.
+image:
+  tag: ""          # required, e.g. sha-0123abc
+  pullPolicy: IfNotPresent
+  server:
+    repository: ghcr.io/OWNER/georef-server   # required: override with your registry path
+  worker:
+    repository: ghcr.io/OWNER/georef-worker   # required: override with your registry path
+imagePullSecrets: []
+
+server:
+  replicas: 1
+  # Extra environment, as name: value. See .env.example for what the server reads.
+  env: {}
+  # Secrets whose keys become environment variables, e.g. one holding GITHUB_CLIENT_ID,
+  # GITHUB_CLIENT_SECRET, SESSION_KEY and SERVICE_CREDENTIAL.
+  envFromSecrets: []
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 512Mi}
+  # Multipart uploads beyond MULTIPART_MEMORY_LIMIT spill to /tmp, so this bounds an upload.
+  tmpSizeLimit: 2Gi
+
+worker:
+  replicas: 1
+  env: {}
+  envFromSecrets: []
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 2Gi}
+  # The worker copies each original to /tmp before vips reads it.
+  tmpSizeLimit: 4Gi
+
+# Login. With auth.enabled false the server runs with authentication DISABLED and anyone who
+# can reach it can upload, edit and delete. The secret must hold GITHUB_CLIENT_ID,
+# GITHUB_CLIENT_SECRET and SESSION_KEY (base64, at least 32 bytes), and may hold
+# SERVICE_CREDENTIAL.
+auth:
+  enabled: false
+  existingSecret: ""
+  allowedTeams: []          # org/team
+  iiifAuthRequired: false
+
+cantaloupe:
+  image:
+    repository: docker.io/uclalibrary/cantaloupe
+    tag: 5.0.7-2
+    pullPolicy: IfNotPresent
+  env: {}
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  # Only the server may reach Cantaloupe: the image server must never be reachable from
+  # outside, and the server is what enforces read login.
+  networkPolicy: true
+
+# Shared by server and worker (read-write) and Cantaloupe (read-only), so ReadWriteMany.
+storage:
+  existingClaim: ""
+  storageClass: ""
+  size: 50Gi
+  accessMode: ReadWriteMany
+
+database:
+  # A one-instance CloudNativePG cluster in the release's namespace. Needs the CNPG operator.
+  cnpg:
+    enabled: true
+    instances: 1
+    imageName: ""          # empty: the operator's default
+    size: 5Gi
+    storageClass: ""
+  # Used when cnpg.enabled is false. The secret holds the user and password.
+  external:
+    host: ""
+    port: 5432
+    name: georef
+    existingSecret: ""
+    userKey: username
+    passwordKey: password
+  # CNPG serves TLS; require it.
+  sslmode: require
+
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  annotations: {}
+  tls: []
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile: {type: RuntimeDefault}
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities: {drop: [ALL]}

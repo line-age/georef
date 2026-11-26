@@ -1,0 +1,102 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: georef
+      POSTGRES_USER: georef
+      POSTGRES_PASSWORD: georef
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Expose on 5433 locally to avoid conflicting with any host Postgres instance.
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U georef"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Internal image server — not reachable from outside the compose network
+  # by design (no ports: mapping). The front service proxies to it.
+  # See docs/image-service.md for Cantaloupe config details (Stage 6+).
+  cantaloupe:
+    image: uclalibrary/cantaloupe:5.0.7-2
+    environment:
+      CANTALOUPE_SOURCE_STATIC: FilesystemSource
+      # prefix + sheetID + suffix = /data/storage/sheets/{id}/pyramid.tif
+      # The identifier is the bare ULID with no slashes, so Jetty's
+      # %2F path-traversal defence never applies.
+      CANTALOUPE_FILESYSTEMSOURCE_BASICLOOKUPSTRATEGY_PATH_PREFIX: /data/storage/sheets/
+      CANTALOUPE_FILESYSTEMSOURCE_BASICLOOKUPSTRATEGY_PATH_SUFFIX: /pyramid.tif
+    volumes:
+      - storage_data:/data/storage:ro
+
+  server:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: server
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: georef
+      DB_USER: georef
+      DB_PASSWORD: georef
+      DB_SSLMODE: disable
+      STORAGE_ROOT: /data/storage
+      BASE_URL: http://localhost:8080
+      IMAGE_SERVER_URL: http://cantaloupe:8182
+      ADDR: :8080
+      # GitHub OAuth — set these to enable write auth. See docs/auth.md.
+      AUTH_REQUIRED: "false"
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      GITHUB_ALLOWED_TEAMS: ${GITHUB_ALLOWED_TEAMS}
+      SESSION_KEY: ${SESSION_KEY}
+      # IIIF_AUTH_REQUIRED: "false"
+      # MAX_UPLOAD_SIZE: 1073741824
+    volumes:
+      - storage_data:/data/storage
+    ports:
+      - "8080:8080"
+    # The server runs migrations via entrypoint.sh before starting.
+    # The healthcheck lets the worker wait until the schema is ready and the
+    # server is accepting connections.
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8080"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      cantaloupe:
+        condition: service_started
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: worker
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: georef
+      DB_USER: georef
+      DB_PASSWORD: georef
+      DB_SSLMODE: disable
+      STORAGE_ROOT: /data/storage
+      POLL_INTERVAL: 5s
+      # VIPS_TILE_WIDTH: 256
+      # VIPS_TILE_HEIGHT: 256
+    volumes:
+      - storage_data:/data/storage
+    depends_on:
+      server:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  storage_data:

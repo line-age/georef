@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS sheets;
+DROP TYPE IF EXISTS sheet_status;
