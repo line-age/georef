@@ -122,6 +122,7 @@ func (imageProxy *Proxy) ServeTile(w http.ResponseWriter, r *http.Request, upstr
 	defer upstreamResp.Body.Close()
 
 	if upstreamResp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, upstreamResp.Body)
 		return fmt.Errorf("image server returned %d", upstreamResp.StatusCode)
 	}
 
@@ -151,6 +152,7 @@ func (imageProxy *Proxy) FetchDimensions(ctx context.Context, infoURL string) (w
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return 0, 0, fmt.Errorf("image server returned %d", resp.StatusCode)
 	}
 
@@ -160,6 +162,9 @@ func (imageProxy *Proxy) FetchDimensions(ctx context.Context, infoURL string) (w
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, imageProxy.maxInfoBodySize)).Decode(&info); err != nil {
 		return 0, 0, err
+	}
+	if info.Width <= 0 || info.Height <= 0 {
+		return 0, 0, fmt.Errorf("image server returned invalid dimensions %dx%d", info.Width, info.Height)
 	}
 	return info.Width, info.Height, nil
 }
