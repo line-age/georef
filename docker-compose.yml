@@ -49,12 +49,12 @@ services:
       IMAGE_SERVER_URL: http://cantaloupe:8182
       ADDR: :8080
       # GitHub OAuth — set these to enable write auth. See docs/auth.md.
-      # AUTH_REQUIRED: "true"
-      # GITHUB_CLIENT_ID:
-      # GITHUB_CLIENT_SECRET:
-      # GITHUB_ALLOWED_TEAMS:
-      # SESSION_KEY:
-      # READ_LOGIN_REQUIRED: "false"
+      AUTH_REQUIRED: "false"
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      GITHUB_ALLOWED_TEAMS: ${GITHUB_ALLOWED_TEAMS}
+      SESSION_KEY: ${SESSION_KEY}
+      # IIIF_AUTH_REQUIRED: "false"
       # MAX_UPLOAD_SIZE: 1073741824
     volumes:
       - storage_data:/data/storage

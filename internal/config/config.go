@@ -44,7 +44,7 @@ type ServerConfig struct {
 	SessionKey         []byte        // parsed from SESSION_KEY (base64); at least 32 bytes when auth is enabled
 	SecureCookies      bool          // set false for local HTTP development; default true
 	SessionMaxAge      int           // session lifetime in seconds; default 604800 (7 days)
-	ReadLoginRequired  bool          // gate IIIF endpoints; default false
+	IIIFAuthRequired   bool          // gate IIIF endpoints globally; default false
 	ServiceCredential  string        // bearer token for machine-to-machine IIIF access
 
 	// CORS
@@ -78,7 +78,7 @@ func LoadServer() (*ServerConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	multipartFormOverhead, err := envInt64("MULTIPART_FORM_OVERHEAD", 1024)
+	multipartFormOverhead, err := envInt64("MULTIPART_FORM_OVERHEAD", 8*1024)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +176,7 @@ func LoadServer() (*ServerConfig, error) {
 		SecureCookies:            envWithDefault("SECURE_COOKIES", "true") != "false",
 		SessionMaxAge:            sessionMaxAge,
 		IIIFStatusCacheTTL:       iiifStatusCacheTTL,
-		ReadLoginRequired:        envWithDefault("READ_LOGIN_REQUIRED", "false") == "true",
+		IIIFAuthRequired:         envWithDefault("IIIF_AUTH_REQUIRED", "false") == "true",
 		ServiceCredential:        readEnv("SERVICE_CREDENTIAL"),
 		CORSAllowedOrigins:       parseCORSOrigins(readEnv("CORS_ALLOWED_ORIGINS")),
 	}

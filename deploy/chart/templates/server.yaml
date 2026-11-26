@@ -34,8 +34,8 @@ spec:
               value: "http://{{ $fn }}-cantaloupe:8182"
             - name: ADDR
               value: ":8080"
-            - name: READ_LOGIN_REQUIRED
-              value: {{ .Values.auth.readLoginRequired | quote }}
+            - name: IIIF_AUTH_REQUIRED
+              value: {{ .Values.auth.iiifAuthRequired | quote }}
             {{- if .Values.auth.enabled }}
             - name: GITHUB_ALLOWED_TEAMS
               value: {{ required "auth.allowedTeams is required when auth.enabled" .Values.auth.allowedTeams | join "," | quote }}

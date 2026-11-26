@@ -122,10 +122,10 @@ func (handler *Handler) toSheetResponse(sheetRecord *model.Sheet) sheetResponse 
 }
 
 // iiifCacheControl returns the Cache-Control value for IIIF responses.
-// Private when READ_LOGIN_REQUIRED is on (all tiles gated), or when the
+// Private when IIIF_AUTH_REQUIRED is on (all tiles gated), or when the
 // sheet itself is private (per-sheet visibility takes precedence).
 func (handler *Handler) iiifCacheControl(sheetRecord *model.Sheet) string {
-	if handler.authenticator.ReadLoginEnabled() || !sheetRecord.Public {
+	if handler.authenticator.IIIFAuthEnabled() || !sheetRecord.Public {
 		return "private"
 	}
 	return "public"

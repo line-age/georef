@@ -79,7 +79,7 @@ func main() {
 		CallbackURL:        cfg.BaseURL + "/auth/callback",
 		SecureCookies:      cfg.SecureCookies,
 		SessionMaxAge:      cfg.SessionMaxAge,
-		ReadLoginRequired:  cfg.ReadLoginRequired,
+		IIIFAuthRequired:   cfg.IIIFAuthRequired,
 		ServiceCredential:  cfg.ServiceCredential,
 	})
 	apiHandler := api.New(sheets, appStore, imageProxy, authenticator, api.Config{

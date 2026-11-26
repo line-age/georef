@@ -1,5 +1,5 @@
 // Package auth implements GitHub OAuth2, cookie sessions, and team-membership middleware.
-// Write endpoints require a valid session in an allowed GitHub team.
+// Login-protected endpoints require a valid session in an allowed GitHub team.
 package auth
 
 import (
@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gorilla/sessions"
@@ -21,6 +22,7 @@ const (
 	sessionName          = "georef"
 	sessionKeyAuth       = "authenticated"
 	sessionKeyOAuthState = "oauth_state"
+	sessionKeyNext       = "next_url"
 	defaultSessionMaxAge = 86400 * 7 // 7 days
 
 	msgUnauthorized        = "authentication required"
@@ -44,19 +46,19 @@ type Config struct {
 	CallbackURL        string   // e.g. "https://maps.example.com/auth/callback"
 	SecureCookies      bool     // set false only in local HTTP development
 	SessionMaxAge      int      // session lifetime in seconds; 0 means use defaultSessionMaxAge (7 days)
-	ReadLoginRequired  bool     // when true, IIIF endpoints require a session or service credential
+	IIIFAuthRequired   bool     // when true, IIIF endpoints require a session or service credential
 	ServiceCredential  string   // bearer token for machine-to-machine IIIF access (e.g. Allmaps tile server)
 }
 
-// Authenticator handles the GitHub OAuth2 flow, session cookies, and the write-auth middleware.
-// A nil or disabled Authenticator is a passthrough: RequireWrite allows all requests.
+// Authenticator handles the GitHub OAuth2 flow, session cookies, and login middleware.
+// A nil or disabled Authenticator is a passthrough: RequireLogin allows all requests.
 type Authenticator struct {
-	disabled          bool
-	oauthConfig       *oauth2.Config
-	sessionStore      sessions.Store
-	allowedTeams      map[string]bool
-	teamClient        githubTeamClient
-	readLoginRequired bool
+	disabled         bool
+	oauthConfig      *oauth2.Config
+	sessionStore     sessions.Store
+	allowedTeams     map[string]bool
+	teamClient       githubTeamClient
+	iiifAuthRequired bool
 	serviceCredential string
 }
 
@@ -78,7 +80,7 @@ type githubOrganization struct {
 
 // New returns an Authenticator configured from cfg.
 // Authentication is disabled when GitHubClientID is empty or AuthRequired is false.
-// In both cases RequireWrite and RequireRead are passthroughs.
+// In both cases RequireLogin and RequireIIIFAuth are passthroughs.
 func New(cfg Config) *Authenticator {
 	if cfg.GitHubClientID == "" || !cfg.AuthRequired {
 		return &Authenticator{disabled: true}
@@ -117,7 +119,7 @@ func New(cfg Config) *Authenticator {
 		sessionStore:      cookieStore,
 		allowedTeams:      allowedTeams,
 		teamClient:        &httpTeamClient{oauthConfig: oauthCfg},
-		readLoginRequired: cfg.ReadLoginRequired,
+		iiifAuthRequired: cfg.IIIFAuthRequired,
 		serviceCredential: cfg.ServiceCredential,
 	}
 }
@@ -132,6 +134,9 @@ func (authenticator *Authenticator) LoginHandler(w http.ResponseWriter, r *http.
 	state := randomState()
 	session, _ := authenticator.sessionStore.Get(r, sessionName)
 	session.Values[sessionKeyOAuthState] = state
+	if next := r.URL.Query().Get("next"); isValidNextURL(next) {
+		session.Values[sessionKeyNext] = next
+	}
 	if err := session.Save(r, w); err != nil {
 		http.Error(w, "session error", http.StatusInternalServerError)
 		return
@@ -178,12 +183,18 @@ func (authenticator *Authenticator) CallbackHandler(w http.ResponseWriter, r *ht
 	for _, team := range teams {
 		slug := team.Organization.Login + "/" + team.Slug
 		if authenticator.allowedTeams[slug] {
+			next, _ := session.Values[sessionKeyNext].(string)
+			delete(session.Values, sessionKeyNext)
 			session.Values[sessionKeyAuth] = true
 			if err := session.Save(r, w); err != nil {
 				http.Error(w, "session error", http.StatusInternalServerError)
 				return
 			}
-			http.Redirect(w, r, "/", http.StatusFound)
+			redirectTo := "/"
+			if next != "" {
+				redirectTo = next
+			}
+			http.Redirect(w, r, redirectTo, http.StatusFound)
 			return
 		}
 	}
@@ -204,10 +215,16 @@ func (authenticator *Authenticator) LogoutHandler(w http.ResponseWriter, r *http
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
-// RequireWrite is middleware that rejects unauthenticated write requests.
+// IsEnabled reports whether authentication is active.
+// Returns false when GitHubClientID is unset or AuthRequired is false (dev mode).
+func (authenticator *Authenticator) IsEnabled() bool {
+	return !authenticator.disabled
+}
+
+// RequireLogin is middleware that rejects requests without a valid session.
 // Returns 401 when no authenticated session exists.
 // When auth is disabled, all requests pass through.
-func (authenticator *Authenticator) RequireWrite(next http.Handler) http.Handler {
+func (authenticator *Authenticator) RequireLogin(next http.Handler) http.Handler {
 	if authenticator.disabled {
 		return next
 	}
@@ -225,17 +242,39 @@ func (authenticator *Authenticator) RequireWrite(next http.Handler) http.Handler
 	})
 }
 
-// ReadLoginEnabled reports whether IIIF read access requires authentication.
-// Returns false when auth is disabled (dev mode) regardless of the config flag.
-func (authenticator *Authenticator) ReadLoginEnabled() bool {
-	return !authenticator.disabled && authenticator.readLoginRequired
+// RequireLoginRedirect is middleware for browser page routes.
+// Unauthenticated requests are redirected to /auth/login?next=<original path>
+// rather than receiving a 401 JSON response, so the browser lands on the login
+// page and returns to the intended destination after a successful login.
+func (authenticator *Authenticator) RequireLoginRedirect(next http.Handler) http.Handler {
+	if authenticator.disabled {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session, err := authenticator.sessionStore.Get(r, sessionName)
+		if err != nil || session.IsNew {
+			http.Redirect(w, r, "/auth/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
+			return
+		}
+		if authenticated, ok := session.Values[sessionKeyAuth].(bool); !ok || !authenticated {
+			http.Redirect(w, r, "/auth/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
-// CheckReadAuth reports whether r carries a valid session or service credential.
+// IIIFAuthEnabled reports whether IIIF endpoints require authentication globally.
+// Returns false when auth is disabled (dev mode) regardless of the config flag.
+func (authenticator *Authenticator) IIIFAuthEnabled() bool {
+	return !authenticator.disabled && authenticator.iiifAuthRequired
+}
+
+// IsLoggedIn reports whether r carries a valid session or service credential.
 // Used by per-sheet visibility checks: a private sheet requires auth even when
-// READ_LOGIN_REQUIRED is false globally.
+// IIIF_AUTH_REQUIRED is false globally.
 // Always returns true when auth is disabled.
-func (authenticator *Authenticator) CheckReadAuth(r *http.Request) bool {
+func (authenticator *Authenticator) IsLoggedIn(r *http.Request) bool {
 	if authenticator.disabled {
 		return true
 	}
@@ -256,15 +295,15 @@ func (authenticator *Authenticator) CheckReadAuth(r *http.Request) bool {
 	return ok && authenticated
 }
 
-// RequireRead is middleware that gates IIIF read access when READ_LOGIN_REQUIRED is true.
+// RequireIIIFAuth is middleware that gates IIIF access when IIIF_AUTH_REQUIRED is true.
 // A request passes when:
-//   - read-login is off, or auth is disabled
+//   - IIIF auth is off, or auth is disabled
 //   - the request carries Authorization: Bearer <SERVICE_CREDENTIAL>
 //   - the request has a valid authenticated session
 //
 // All other requests receive 401.
-func (authenticator *Authenticator) RequireRead(next http.Handler) http.Handler {
-	if authenticator.disabled || !authenticator.readLoginRequired {
+func (authenticator *Authenticator) RequireIIIFAuth(next http.Handler) http.Handler {
+	if authenticator.disabled || !authenticator.iiifAuthRequired {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -292,6 +331,12 @@ func (authenticator *Authenticator) RequireRead(next http.Handler) http.Handler 
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isValidNextURL returns true when next is a safe relative path to redirect to
+// after login. It must start with "/" but not "//" to prevent open redirects.
+func isValidNextURL(next string) bool {
+	return strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//")
 }
 
 // httpTeamClient fetches GitHub team memberships via the real GitHub API.

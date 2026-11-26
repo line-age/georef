@@ -70,6 +70,8 @@ func (handler *Handler) serveInfoJSON(w http.ResponseWriter, r *http.Request) {
 
 	if err := handler.imageProxy.ServeInfoJSON(w, r, upstreamURL, publicIIIFBase, handler.iiifCacheControl(readySheet)); err != nil {
 		slog.ErrorContext(r.Context(), logMsgProxyInfoFailed, "id", id, "err", err)
+		// Safe: ServeInfoJSON buffers the full rewrite in memory before writing to w,
+		// so all errors are returned before any bytes are committed to the response.
 		writeError(w, http.StatusBadGateway, "image server unavailable")
 	}
 }
@@ -133,7 +135,7 @@ func (handler *Handler) resolveReadySheet(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, msgSheetNotFound)
 		return nil
 	case model.StatusReady:
-		if !s.Public && !handler.authenticator.CheckReadAuth(r) {
+		if !s.Public && !handler.authenticator.IsLoggedIn(r) {
 			writeError(w, http.StatusUnauthorized, msgSheetUnauthorized)
 			return nil
 		}

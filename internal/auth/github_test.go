@@ -8,7 +8,7 @@ import (
 	"github.com/line-age/georef/internal/auth"
 )
 
-func TestRequireWrite_DisabledAuth_PassesThrough(t *testing.T) {
+func TestRequireLogin_DisabledAuth_PassesThrough(t *testing.T) {
 	authenticator := auth.New(auth.Config{}) // disabled: no ClientID
 
 	called := false
@@ -19,7 +19,7 @@ func TestRequireWrite_DisabledAuth_PassesThrough(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/sheets", nil)
 	rec := httptest.NewRecorder()
-	authenticator.RequireWrite(next).ServeHTTP(rec, req)
+	authenticator.RequireLogin(next).ServeHTTP(rec, req)
 
 	if !called {
 		t.Error("expected next handler to be called when auth is disabled")
@@ -29,7 +29,7 @@ func TestRequireWrite_DisabledAuth_PassesThrough(t *testing.T) {
 	}
 }
 
-func TestRequireWrite_NoSession_Returns401(t *testing.T) {
+func TestRequireLogin_NoSession_Returns401(t *testing.T) {
 	authenticator := auth.New(auth.Config{
 		AuthRequired:       true,
 		GitHubClientID:     "test-client-id",
@@ -45,7 +45,7 @@ func TestRequireWrite_NoSession_Returns401(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/sheets", nil)
 	rec := httptest.NewRecorder()
-	authenticator.RequireWrite(next).ServeHTTP(rec, req)
+	authenticator.RequireLogin(next).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("want 401, got %d: %s", rec.Code, rec.Body.String())

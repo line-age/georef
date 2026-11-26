@@ -10,9 +10,9 @@ image:
   tag: ""          # required, e.g. sha-0123abc
   pullPolicy: IfNotPresent
   server:
-    repository: ghcr.io/line-age/georef-server
+    repository: ghcr.io/OWNER/georef-server   # required: override with your registry path
   worker:
-    repository: ghcr.io/line-age/georef-worker
+    repository: ghcr.io/OWNER/georef-worker   # required: override with your registry path
 imagePullSecrets: []
 
 server:
@@ -46,7 +46,7 @@ auth:
   enabled: false
   existingSecret: ""
   allowedTeams: []          # org/team
-  readLoginRequired: false
+  iiifAuthRequired: false
 
 cantaloupe:
   image:
